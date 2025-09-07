@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant POS - Billing System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.3/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen active">
+        <div class="login-container">
+            <div class="card login-card">
+                <div class="card__body">
+                    <h1 style="text-align: center; margin-bottom: var(--space-24);">Restaurant POS System</h1>
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label class="form-label" for="username">Username</label>
+                            <input type="text" id="username" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="password">Password</label>
+                            <input type="password" id="password" class="form-control" required>
+                        </div>
+                        <button type="submit" class="btn btn--primary btn--full-width">Login</button>
+                    </form>
+                    <div id="loginError" class="error-message hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="adminScreen" class="screen">
+        <div class="admin-layout">
+            <!-- Admin Header -->
+            <header class="admin-header">
+                <div class="header-content">
+                    <h1>Admin Dashboard</h1>
+                    <div class="header-actions">
+                        <span class="user-info">Welcome, <span id="adminUserName"></span></span>
+                        <button id="adminLogout" class="btn btn--outline btn--sm">Logout</button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Admin Navigation -->
+            <nav class="admin-nav">
+                <button class="nav-btn active" data-section="bills">Bill Management</button>
+                <button class="nav-btn" data-section="pending">Pending Orders</button>
+                <button class="nav-btn" data-section="menu">Menu Management</button>
+                <button class="nav-btn" data-section="orders">Order History</button>
+                <button class="nav-btn" data-section="sales">Sales Reports</button>
+                <button class="nav-btn" data-section="export">Data Export</button>
+                <button class="nav-btn" data-section="users">User Management</button>
+                <button class="nav-btn" data-section="settings">Restaurant Settings</button>
+                <button class="nav-btn" data-section="qr">QR Code Settings</button>
+            </nav>
+
+            <!-- Admin Content Area -->
+            <main class="admin-content">
+                <!-- Bill Management Section -->
+                <div id="billsSection" class="admin-section active">
+                    <div class="section-header">
+                        <h2>Admin Bill Management</h2>
+                        <button id="generateAdminBillBtn" class="btn btn--primary">Generate New Bill</button>
+                    </div>
+                    <div class="admin-bill-stats">
+                        <div class="stat-card">
+                            <h3>Today's Bills</h3>
+                            <p id="todayBillsCount" class="stat-value">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Today's Revenue</h3>
+                            <p id="todayRevenue" class="stat-value">₹0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Pending Bills</h3>
+                            <p id="pendingBillsCount" class="stat-value">0</p>
+                        </div>
+                    </div>
+                    <div class="recent-bills">
+                        <h3>Recent Bills</h3>
+                        <div id="recentBillsList" class="bills-list"></div>
+                    </div>
+                </div>
+
+                <!-- Menu Management Section -->
+                <div id="menuSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>Menu Management</h2>
+                        <button id="addMenuItemBtn" class="btn btn--primary">Add New Item</button>
+                    </div>
+                    <div class="menu-filters">
+                        <select id="categoryFilter" class="form-control">
+                            <option value="">All Categories</option>
+                        </select>
+                        <input type="text" id="menuSearch" class="form-control" placeholder="Search menu items...">
+                    </div>
+                    <div id="menuItemsList" class="menu-items-grid"></div>
+                </div>
+
+                <!-- Order History Section -->
+                <div id="ordersSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>All Order History</h2>
+                        <div class="order-filters">
+                            <select id="cashierFilter" class="form-control">
+                                <option value="">All Cashiers</option>
+                            </select>
+                            <select id="paymentModeFilter" class="form-control">
+                                <option value="">All Payment Modes</option>
+                            </select>
+                            <input type="date" id="orderDateFilter" class="form-control">
+                            <button class="btn btn--secondary" id="clearOrderFilters">Clear Filters</button>
+                        </div>
+                    </div>
+                    <div class="order-search">
+                        <input type="text" id="orderSearch" class="form-control" placeholder="Search by customer name, bill number, or phone...">
+                    </div>
+                    <div id="orderHistoryList" class="orders-table"></div>
+                </div>
+
+                <!-- Sales Reports Section -->
+                <div id="salesSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>Sales Reports</h2>
+                        <div class="date-filters">
+                            <button class="btn btn--outline filter-btn active" data-period="today">Today</button>
+                            <button class="btn btn--outline filter-btn" data-period="week">This Week</button>
+                            <button class="btn btn--outline filter-btn" data-period="month">This Month</button>
+                            <input type="date" id="customFromDate" class="form-control">
+                            <input type="date" id="customToDate" class="form-control">
+                            <button class="btn btn--secondary" id="applyCustomFilter">Apply</button>
+                        </div>
+                    </div>
+                    <div class="sales-summary">
+                        <div class="stat-card">
+                            <h3>Total Sales</h3>
+                            <p id="totalSales" class="stat-value">₹0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Total Bills</h3>
+                            <p id="totalBills" class="stat-value">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Average Order</h3>
+                            <p id="avgOrder" class="stat-value">₹0</p>
+                        </div>
+                    </div>
+                    <div class="payment-breakdown">
+                        <h3>Payment Mode Breakdown</h3>
+                        <div id="paymentChart" class="chart-container" style="position: relative; height: 300px;">
+                            <canvas></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Export Section -->
+                <div id="exportSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>Data Export Center</h2>
+                    </div>
+                    <div class="export-options">
+                        <div class="export-card">
+                            <h3>Sales Reports</h3>
+                            <p>Export sales data with comprehensive analytics</p>
+                            <div class="export-actions">
+                                <button class="btn btn--secondary" id="exportSalesCSV">Export CSV</button>
+                                <button class="btn btn--secondary" id="exportSalesPDF">Export PDF</button>
+                                <button class="btn btn--secondary" id="exportSalesExcel">Export Excel</button>
+                            </div>
+                        </div>
+                        <div class="export-card">
+                            <h3>Order History</h3>
+                            <p>Complete order database with customer details</p>
+                            <div class="export-actions">
+                                <button class="btn btn--secondary" id="exportOrdersCSV">Export CSV</button>
+                                <button class="btn btn--secondary" id="exportOrdersPDF">Export PDF</button>
+                            </div>
+                        </div>
+                        <div class="export-card">
+                            <h3>Menu Database</h3>
+                            <p>Menu items with pricing and availability</p>
+                            <div class="export-actions">
+                                <button class="btn btn--secondary" id="exportMenuCSV">Export CSV</button>
+                                <button class="btn btn--secondary" id="exportMenuPDF">Export PDF</button>
+                            </div>
+                        </div>
+                        <div class="export-card">
+                            <h3>Financial Summary</h3>
+                            <p>Tax reports and financial breakdowns</p>
+                            <div class="export-actions">
+                                <button class="btn btn--secondary" id="exportFinancialPDF">Export PDF</button>
+                                <button class="btn btn--secondary" id="exportTaxReport">Tax Report</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="export-filters">
+                        <h3>Export Filters</h3>
+                        <div class="filter-row">
+                            <label class="form-label">Date Range:</label>
+                            <input type="date" id="exportFromDate" class="form-control">
+                            <input type="date" id="exportToDate" class="form-control">
+                        </div>
+                        <div class="filter-row">
+                            <label class="form-label">Cashier:</label>
+                            <select id="exportCashierFilter" class="form-control">
+                                <option value="">All Cashiers</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Management Section -->
+                <div id="usersSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>User Management</h2>
+                        <button id="addUserBtn" class="btn btn--primary">Add Cashier</button>
+                    </div>
+                    <div id="usersList" class="users-table"></div>
+                </div>
+
+                <!-- Restaurant Settings Section -->
+                <div id="settingsSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>Restaurant Settings</h2>
+                    </div>
+                    <form id="restaurantSettingsForm">
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label class="form-label" for="restaurantName">Restaurant Name</label>
+                                <input type="text" id="restaurantName" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="restaurantAddress">Address</label>
+                                <textarea id="restaurantAddress" class="form-control" rows="3" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="gstin">GSTIN</label>
+                                <input type="text" id="gstin" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="fssai">FSSAI License</label>
+                                <input type="text" id="fssai" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="restaurantPhone">Phone</label>
+                                <input type="tel" id="restaurantPhone" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="gstRate">GST Rate (%)</label>
+                                <select id="gstRate" class="form-control">
+                                    <option value="0">0%</option>
+                                    <option value="5">5%</option>
+                                    <option value="12">12%</option>
+                                    <option value="18">18%</option>
+                                    <option value="28">28%</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="restaurantLogo">Restaurant Logo</label>
+                                <input type="file" id="restaurantLogo" class="form-control" accept="image/*">
+                                <small>Upload a logo image (PNG, JPG, JPEG). Max size: 2MB</small>
+                                <div id="currentLogoPreview" style="margin-top: 10px;"></div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn--primary">Save Settings</button>
+                    </form>
+                </div>
+
+                <!-- QR Code Settings Section -->
+                <div id="qrSection" class="admin-section">
+                    <div class="section-header">
+                        <h2>QR Code Settings</h2>
+                    </div>
+                    <form id="qrSettingsForm">
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label class="form-label" for="upiId">UPI ID</label>
+                                <input type="text" id="upiId" class="form-control" placeholder="merchant@upi" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="merchantName">Merchant Name</label>
+                                <input type="text" id="merchantName" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="qrEnabled"> Enable QR Code on Bills
+                                </label>
+                            </div>
+                             <div class="form-group">
+                                <label class="form-label" for="qrPhoto">QR Code Upload</label>
+                                <input type="file" id="qrPhoto" class="form-control" accept="image/*">
+                                <small>Upload your QR code image here (optional)</small>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn--primary">Save QR Settings</button>
+                    </form>
+                    <div class="qr-preview">
+                        <h3>QR Code Preview</h3>
+                        <div id="qrPreviewContainer">
+                            <canvas id="qrPreviewCanvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Cashier Interface -->
+    <div id="cashierScreen" class="screen">
+        <div class="cashier-layout">
+            <!-- Cashier Header -->
+            <header class="cashier-header">
+                <div class="header-content">
+                    <h1>POS Terminal</h1>
+                    <div class="header-actions">
+                        <span class="user-info">Cashier: <span id="cashierUserName"></span></span>
+                        <button id="viewHistoryBtn" class="btn btn--outline btn--sm">Order History</button>
+                        <button id="cashierLogout" class="btn btn--outline btn--sm">Logout</button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="cashier-main">
+                <!-- Order History Panel (Hidden by default) -->
+                <div id="cashierHistoryPanel" class="history-panel hidden">
+                    <div class="history-header">
+                        <h3>Order History</h3>
+                        <div class="history-tabs">
+                            <button class="history-tab active" data-period="today">Today's Orders</button>
+                            <button class="history-tab" data-period="all">All Orders</button>
+                        </div>
+                        <button id="closeHistoryBtn" class="btn btn--outline btn--sm">Close</button>
+                    </div>
+                    <div class="history-filters">
+                        <input type="date" id="historyDateFilter" class="form-control">
+                        <input type="text" id="historySearch" class="form-control" placeholder="Search orders...">
+                    </div>
+                    <div id="cashierOrderHistory" class="history-list"></div>
+                </div>
+
+                <!-- Menu Selection Panel -->
+                <div class="menu-panel">
+                    <div class="customer-details">
+                        <h3>Customer Details</h3>
+                        <div class="customer-form">
+                            <input type="text" id="customerName" class="form-control" placeholder="Customer Name (Optional)">
+                            <input type="tel" id="customerPhone" class="form-control" placeholder="Phone Number (Optional)">
+                            <input type="text" id="tableNumber" class="form-control" placeholder="Table/Dine-in Number" required>
+                        </div>
+                    </div>
+
+                    <div class="menu-categories">
+                        <button class="category-btn active" data-category="">All Items</button>
+                    </div>
+
+                    <div class="menu-search">
+                        <input type="text" id="menuSearchCashier" class="form-control" placeholder="Search menu items...">
+                    </div>
+
+                    <div id="menuItemsGrid" class="menu-items-display"></div>
+                </div>
+
+                <!-- Order Summary Panel -->
+                <div class="order-panel">
+                    <div class="order-summary">
+                        <h3>Order Summary</h3>
+                        <div id="cartItems" class="cart-items"></div>
+                        
+                        <div class="order-totals">
+                            <div class="total-line">
+                                <span>Subtotal:</span>
+                                <span id="subtotalAmount">₹0.00</span>
+                            </div>
+                            <div class="total-line">
+                                <span>GST (<span id="gstPercentage">0</span>%):</span>
+                                <span id="gstAmount">₹0.00</span>
+                            </div>
+                            <div class="total-line grand-total">
+                                <span>Grand Total:</span>
+                                <span id="grandTotal">₹0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="payment-section">
+                            <h4>Payment Mode</h4>
+                            <div class="payment-modes">
+                                <button class="payment-btn active" data-mode="Cash">Cash</button>
+                                <button class="payment-btn" data-mode="UPI">UPI</button>
+                                <button class="payment-btn" data-mode="Card">Card</button>
+                                <button class="payment-btn" data-mode="Online">Online</button>
+                                <button class="payment-btn" data-mode="Credit">Credit</button>
+                            </div>
+                        </div>
+
+                        <div class="order-actions">
+                            <button id="clearCart" class="btn btn--outline">Clear All</button>
+                            <button id="generateBill" class="btn btn--primary" disabled>Generate Bill</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Admin Bill Generation Modal -->
+    <div id="adminBillModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Generate Admin Bill</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="admin-bill-form">
+                    <div class="form-group">
+                        <label class="form-label" for="adminCustomerName">Customer Name</label>
+                        <input type="text" id="adminCustomerName" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminCustomerPhone">Customer Phone</label>
+                        <input type="tel" id="adminCustomerPhone" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminTableNumber">Table Number</label>
+                        <input type="text" id="adminTableNumber" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminBillDate">Bill Date</label>
+                        <input type="datetime-local" id="adminBillDate" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminCashier">Assign to Cashier</label>
+                        <select id="adminCashier" class="form-control" required>
+                            <option value="">Select Cashier</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminPaymentMode">Payment Mode</label>
+                        <select id="adminPaymentMode" class="form-control" required>
+                            <option value="Cash">Cash</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Card">Card</option>
+                            <option value="Online">Online</option>
+                            <option value="Credit">Credit</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="admin-cart">
+                    <h4>Add Items to Bill</h4>
+                    <div class="admin-menu-search">
+                        <input type="text" id="adminMenuSearch" class="form-control" placeholder="Search menu items...">
+                    </div>
+                    <div id="adminMenuItems" class="admin-menu-grid"></div>
+                    <div id="adminCartItems" class="admin-cart-items"></div>
+                    <div class="admin-totals">
+                        <div class="total-line">
+                            <span>Subtotal:</span>
+                            <span id="adminSubtotal">₹0.00</span>
+                        </div>
+                        <div class="total-line">
+                            <span>GST:</span>
+                            <span id="adminGst">₹0.00</span>
+                        </div>
+                        <div class="total-line grand-total">
+                            <span>Total:</span>
+                            <span id="adminTotal">₹0.00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn--outline modal-cancel">Cancel</button>
+                <button id="saveAdminBill" class="btn btn--primary">Generate Bill</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Menu Item Modal -->
+    <div id="menuItemModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="menuItemModalTitle">Add Menu Item</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form id="menuItemForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" for="itemName">Item Name</label>
+                        <input type="text" id="itemName" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="itemCategory">Category</label>
+                        <select id="itemCategory" class="form-control" required>
+                            <option value="">Select Category</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="itemPrice">Price (₹)</label>
+                        <input type="number" id="itemPrice" class="form-control" min="0" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="itemAvailable">Available</label>
+                        <select id="itemAvailable" class="form-control">
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--outline modal-cancel">Cancel</button>
+                    <button type="submit" class="btn btn--primary">Save Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- User Modal -->
+    <div id="userModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add Cashier</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form id="userForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" for="userName">Full Name</label>
+                        <input type="text" id="userName" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="userUsername">Username</label>
+                        <input type="text" id="userUsername" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="userPassword">Password</label>
+                        <input type="password" id="userPassword" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="userPhone">Phone</label>
+                        <input type="tel" id="userPhone" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--outline modal-cancel">Cancel</button>
+                    <button type="submit" class="btn btn--primary">Add Cashier</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Change Password</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form id="changePasswordForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" for="newPassword">New Password</label>
+                        <input type="password" id="newPassword" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="confirmPassword">Confirm Password</label>
+                        <input type="password" id="confirmPassword" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--outline modal-cancel">Cancel</button>
+                    <button type="submit" class="btn btn--primary">Change Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Order Details Modal -->
+    <div id="orderDetailsModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Order Details</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="orderDetailsContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="reprintBill" class="btn btn--secondary">Reprint Bill</button>
+                <button id="downloadBillPDF" class="btn btn--secondary">Download PDF</button>
+                <button class="btn btn--outline modal-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill Preview Modal -->
+    <div id="billModal" class="modal hidden">
+        <div class="modal-content bill-modal-content">
+            <div class="modal-header">
+                <h3>Bill Preview</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="billPreview" class="bill-receipt"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="printBill" class="btn btn--secondary">Print</button>
+                <button id="downloadPDF" class="btn btn--secondary">Download PDF</button>
+                <button id="completeBill" class="btn btn--primary">Complete Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Print Receipt Container (Hidden) -->
+    <div id="printContainer" class="print-container">
+        <div id="printReceipt" class="print-receipt"></div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loadingSpinner" class="loading-spinner hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

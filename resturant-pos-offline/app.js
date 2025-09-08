@@ -23,6 +23,7 @@ class RestaurantPOS {
         this.currentOrder = null;
         this.selectedUserId = null;
         this.lastSentOrderId = null;
+        this.isSavingAdminBill = false;
 
         // Bind methods to maintain context
         this.handleLogin = this.handleLogin.bind(this);
@@ -55,28 +56,69 @@ class RestaurantPOS {
             }
 
             const data = await response.json();
-
-            // Validate and sanitize the data
             this.data = this.sanitizeServerData(data);
+            
+            // FIX: Properly parse and validate order data
+            if (this.data.orders && Array.isArray(this.data.orders)) {
+                this.data.orders = this.data.orders.map(order => {
+                    try {
+                        // Parse items if stored as JSON string
+                        if (typeof order.items === 'string') {
+                            order.items = JSON.parse(order.items);
+                        }
+                        // Validate items array
+                        if (!Array.isArray(order.items)) {
+                            order.items = [];
+                        }
+                        // Validate and normalize each item
+                        order.items = order.items.map(item => ({
+                            name: item.name || 'Unknown Item',
+                            price: parseFloat(item.price) || 0,
+                            quantity: parseInt(item.quantity) || 1,
+                            total: parseFloat(item.total) || (parseFloat(item.price) * parseInt(item.quantity))
+                        }));
 
-            // Reset application state
+                        // Ensure numeric fields are properly typed
+                        order.subtotal = parseFloat(order.subtotal) || 0;
+                        order.tax_amount = parseFloat(order.tax_amount) || 0;
+                        order.total = parseFloat(order.total) || 0;
+                        order.gst_rate = parseFloat(order.gst_rate) || 5;
+
+                        // Map database field names to app field names
+                        order.billNumber = String(order.bill_number || '');
+                        delete order.bill_number;
+
+                        return order;
+                    } catch (error) {
+                        console.error(`Error parsing order ${order.id}:`, error);
+                        const fallbackOrder = { ...order, items: [] };
+                        fallbackOrder.billNumber = String(fallbackOrder.bill_number || '');
+                        delete fallbackOrder.bill_number;
+                        return fallbackOrder;
+                    }
+                });
+            }
+            
+            // FIX: Improved currentOrder restoration
+            if (this.data.orders && this.data.orders.length > 0) {
+                this.data.orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                
+                const mostRecentOrder = this.data.orders.find(order => 
+                    order.status === 'completed' && 
+                    Array.isArray(order.items) && 
+                    order.items.length > 0
+                );
+                
+                if (mostRecentOrder) {
+                    this.currentOrder = mostRecentOrder;
+                    console.log('Restored currentOrder:', this.currentOrder.billNumber);
+                }
+            }
+            
             this.currentUser = null;
             this.cart = [];
             this.adminCart = [];
             this.selectedPaymentMode = "Cash";
-
-            // Set currentOrder to the most recent order if available
-            if (this.data.orders && this.data.orders.length > 0) {
-                // Sort orders by created_at descending
-                this.data.orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                this.currentOrder = this.data.orders[0];
-                console.log('Restored currentOrder from latest order:', this.currentOrder.billNumber);
-                // Show bill preview for restored current order
-                this.showBillPreview();
-            } else {
-                this.currentOrder = null;
-            }
-
             this.selectedUserId = null;
             this.lastSentOrderId = null;
 
@@ -720,7 +762,7 @@ class RestaurantPOS {
         }
     }
 
-    saveAdminBill() {
+        saveAdminBill() {
         const customerName = document.getElementById('adminCustomerName').value.trim();
         const customerPhone = document.getElementById('adminCustomerPhone').value.trim();
         const tableNumber = document.getElementById('adminTableNumber').value.trim();
@@ -744,7 +786,8 @@ class RestaurantPOS {
         const gstAmount = (subtotal * gstRate) / 100;
         const grandTotal = subtotal + gstAmount;
 
-        const billNumber = this.generateBillNumber();
+        // Use undefined billNumber initially to let server generate unique bill number
+        const billNumber = undefined;
         const order = {
             id: Date.now(),
             billNumber: billNumber,
@@ -768,30 +811,53 @@ class RestaurantPOS {
         // Save order to database
         fetch('/api/orders', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(order)
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Update the order with server-generated bill number
+                // Update order with server-generated bill number
                 if (data.billNumber) {
                     order.billNumber = data.billNumber;
-                    console.log(`Updated admin bill number to server-generated: ${data.billNumber}`);
+                    console.log(`Server generated bill number: ${data.billNumber}`);
                 }
 
-                // Add order to local data for immediate UI updates
-                this.data.orders.unshift(order);
+                // FIX: Check for duplicates AFTER getting server-generated bill number
+                // Use server-generated bill number for reliable duplicate detection
+                const existingOrderIndex = this.data.orders.findIndex(existingOrder => {
+                    // Primary check: server-generated bill number
+                    if (existingOrder.billNumber && order.billNumber) {
+                        return existingOrder.billNumber === order.billNumber;
+                    }
+                    // Fallback: check by order ID if bill numbers are missing
+                    return existingOrder.id === order.id;
+                });
+
+                if (existingOrderIndex === -1) {
+                    // No duplicate found, add to local data
+                    this.data.orders.unshift(order);
+                    console.log('Admin order added to local data:', order.billNumber);
+                } else {
+                    // Update existing order with new data
+                    this.data.orders[existingOrderIndex] = order;
+                    console.log('Admin order updated in local data:', order.billNumber);
+                }
+
                 this.currentOrder = order;
 
                 this.closeModal('adminBillModal');
                 this.showBillPreview();
                 this.loadAdminBillManagement();
-                this.showToast('Admin bill generated successfully!', 'success');
+                this.showToast(`Admin bill generated successfully! Bill #${order.billNumber}`, 'success');
             } else {
-                throw new Error('Failed to save order');
+                // Handle server-side duplicate detection
+                if (data.error === 'Duplicate order') {
+                    this.showToast(`Bill already exists with number: ${data.existingBillNumber}`, 'warning');
+                    console.log('Server detected duplicate order:', data.existingBillNumber);
+                    return;
+                }
+                throw new Error(data.error || 'Failed to save order');
             }
         })
         .catch(error => {

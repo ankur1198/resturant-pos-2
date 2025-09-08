@@ -299,16 +299,41 @@ app.post('/api/orders', (req, res) => {
     const order = req.body;
     console.log('Received order data:', order);
 
+    // Check for duplicate order based on order ID to prevent data redundancy
+    if (order.id) {
+        db.get("SELECT id, bill_number FROM orders WHERE id = ?", [order.id], (err, row) => {
+            if (err) {
+                console.error('Error checking order ID existence:', err.message);
+                return res.status(500).json({ error: 'Database error', details: err.message });
+            }
+
+            if (row) {
+                console.log(`Duplicate order detected with ID ${order.id}, existing bill number: ${row.bill_number}`);
+                return res.status(409).json({
+                    error: 'Duplicate order',
+                    message: 'An order with this ID already exists',
+                    existingBillNumber: row.bill_number
+                });
+            }
+
+            // No duplicate found, proceed with normal processing
+            processOrder(order, res);
+        });
+    } else {
+        // No order ID provided, proceed with normal processing
+        processOrder(order, res);
+    }
+});
+
+function processOrder(order, res) {
     // Check if this is a temporary bill number from frontend
     const isTempBillNumber = order.billNumber && order.billNumber.startsWith('TEMP-');
 
-    let billNumber;
-    if (isTempBillNumber) {
+    let billNumber = order.billNumber;
+    if (!billNumber || isTempBillNumber) {
         // Generate a new unique bill number on server side
         billNumber = generateUniqueBillNumber();
-        console.log(`Generated new bill number ${billNumber} for temp bill ${order.billNumber}`);
-    } else {
-        billNumber = order.billNumber;
+        console.log(`Generated new bill number ${billNumber} for ${isTempBillNumber ? 'temp' : 'missing'} bill number`);
     }
 
     let retryCount = 0;
@@ -355,7 +380,7 @@ app.post('/api/orders', (req, res) => {
     }
 
     tryInsert();
-});
+}
 
 // Update restaurant settings
 app.put('/api/restaurant-settings', (req, res) => {
@@ -597,6 +622,11 @@ app.put('/api/users/:id/last-login', (req, res) => {
             }
             res.json({ success: true });
         });
+});
+
+// Catch-all handler for 404 errors
+app.get('*', (req, res) => {
+    res.status(404).sendFile(path.join(__dirname, '..', '404.php'));
 });
 
 // Start server

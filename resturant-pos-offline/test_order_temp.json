@@ -1,0 +1,16 @@
+{
+  "billNumber": "TEMP-123",
+  "customer_name": "Test",
+  "table_number": "1",
+  "items": [],
+  "subtotal": 100,
+  "gst_rate": 5,
+  "tax_amount": 5,
+  "total": 105,
+  "payment_mode": "Cash",
+  "cashier_id": 1,
+  "cashier_name": "Test",
+  "status": "pending",
+  "date": "2023-10-01",
+  "generated_by": "cashier"
+}

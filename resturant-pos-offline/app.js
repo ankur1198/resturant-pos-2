@@ -24,14 +24,158 @@ class RestaurantPOS {
         this.selectedUserId = null;
         this.lastSentOrderId = null;
         this.isSavingAdminBill = false;
+        this.isCompletingOrder = false;
+        this.pendingRequests = new Set();
+        this.lastOrderHash = null;
 
-        // Bind methods to maintain context
-        this.handleLogin = this.handleLogin.bind(this);
-        this.handleNavClick = this.handleNavClick.bind(this);
-        this.handleCategoryClick = this.handleCategoryClick.bind(this);
-        this.handlePaymentClick = this.handlePaymentClick.bind(this);
+        // Enhanced: Track pending order content hashes to prevent duplicate submissions
+        this.pendingOrderHashes = new Set();
+        this.orderSubmissionTimeouts = new Map(); // Track cleanup timeouts
+        this.hashTimestamps = new Map(); // Track when hashes were added for cleanup
+        this.hashMetadata = new Map(); // Track additional metadata for each hash
 
-        this.init();
+        // New: Submission queue for handling concurrent requests
+        this.submissionQueue = [];
+        this.isProcessingQueue = false;
+        this.submissionProgress = new Map(); // Track submission progress
+
+        // New: Enhanced error tracking and recovery
+        this.submissionErrors = new Map();
+        this.recoveryAttempts = new Map();
+        this.errorRecoveryStrategies = new Map();
+        this.submissionProgressIndicators = new Map();
+
+        // Duplicate prevention configuration with validation
+        this.duplicatePreventionConfig = {
+            cleanupTimeout: 30000, // 30 seconds
+            maxPendingHashes: 50,   // Maximum pending hashes to prevent memory leaks
+            enableLogging: true,    // Enable duplicate detection logging
+            autoCleanupInterval: 30000, // Auto cleanup every 30 seconds (more aggressive)
+            hashExpirationTime: 180000, // 3 minutes expiration for hashes (reduced)
+            maxCleanupBatchSize: 20, // Maximum hashes to clean up per batch
+            emergencyCleanupThreshold: 100, // Trigger emergency cleanup if hashes exceed this
+            memoryPressureThreshold: 75, // Memory usage percentage to trigger cleanup
+            hashRetryAttempts: 3, // Number of retry attempts for hash generation
+            enableDetailedLogging: false // Enable verbose logging for debugging
+        };
+
+        // Validate configuration
+        this.validateDuplicatePreventionConfig();
+    }
+
+    validateDuplicatePreventionConfig() {
+        const config = this.duplicatePreventionConfig;
+
+        // Validate numeric values
+        if (typeof config.cleanupTimeout !== 'number' || config.cleanupTimeout < 1000) {
+            console.warn('Invalid cleanupTimeout, using default 30000ms');
+            config.cleanupTimeout = 30000;
+        }
+
+        if (typeof config.maxPendingHashes !== 'number' || config.maxPendingHashes < 1) {
+            console.warn('Invalid maxPendingHashes, using default 50');
+            config.maxPendingHashes = 50;
+        }
+
+        if (typeof config.autoCleanupInterval !== 'number' || config.autoCleanupInterval < 1000) {
+            console.warn('Invalid autoCleanupInterval, using default 30000ms');
+            config.autoCleanupInterval = 30000;
+        }
+
+        if (typeof config.hashExpirationTime !== 'number' || config.hashExpirationTime < 10000) {
+            console.warn('Invalid hashExpirationTime, using default 180000ms');
+            config.hashExpirationTime = 180000;
+        }
+
+        if (typeof config.maxCleanupBatchSize !== 'number' || config.maxCleanupBatchSize < 1) {
+            console.warn('Invalid maxCleanupBatchSize, using default 20');
+            config.maxCleanupBatchSize = 20;
+        }
+
+        if (typeof config.emergencyCleanupThreshold !== 'number' || config.emergencyCleanupThreshold < 10) {
+            console.warn('Invalid emergencyCleanupThreshold, using default 100');
+            config.emergencyCleanupThreshold = 100;
+        }
+
+        if (typeof config.hashRetryAttempts !== 'number' || config.hashRetryAttempts < 0) {
+            console.warn('Invalid hashRetryAttempts, using default 3');
+            config.hashRetryAttempts = 3;
+        }
+
+        console.log('Duplicate prevention configuration validated successfully');
+
+        // Duplicate detection metrics with enhanced tracking
+        this.duplicateDetectionMetrics = {
+            totalSubmissions: 0,
+            duplicatesPrevented: 0,
+            successfulSubmissions: 0,
+            cleanupEvents: 0,
+            memoryCleanupEvents: 0,
+            hashGenerationErrors: 0,
+            emergencyCleanups: 0,
+            averageHashGenerationTime: 0,
+            totalHashGenerationTime: 0
+        };
+
+        // Performance monitoring
+        this.hashGenerationTimes = [];
+
+        // Start automatic cleanup
+        this.startAutoCleanup();
+
+    // Bind methods to maintain context
+    this.handleLogin = this.handleLogin.bind(this);
+    this.handleNavClick = this.handleNavClick.bind(this);
+    this.handleCategoryClick = this.handleCategoryClick.bind(this);
+    this.handlePaymentClick = this.handlePaymentClick.bind(this);
+
+    this.init();
+    }
+
+    startAutoCleanup() {
+        if (this.autoCleanupIntervalId) {
+            clearInterval(this.autoCleanupIntervalId);
+        }
+
+        this.autoCleanupIntervalId = setInterval(() => {
+            const now = Date.now();
+            const expiredHashes = [];
+
+            for (const [hash, timestamp] of this.hashTimestamps.entries()) {
+                if (now - timestamp > this.duplicatePreventionConfig.hashExpirationTime) {
+                    expiredHashes.push(hash);
+                }
+            }
+
+            if (expiredHashes.length > 0) {
+                expiredHashes.forEach(hash => {
+                    this.pendingOrderHashes.delete(hash);
+                    this.hashTimestamps.delete(hash);
+                    this.hashMetadata.delete(hash);
+
+                    const timeoutId = this.orderSubmissionTimeouts.get(hash);
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                        this.orderSubmissionTimeouts.delete(hash);
+                    }
+                });
+
+                this.duplicateDetectionMetrics.cleanupEvents++;
+                if (this.duplicatePreventionConfig.enableLogging) {
+                    console.log(`[AutoCleanup] Removed ${expiredHashes.length} expired order hashes`);
+                }
+            }
+        }, this.duplicatePreventionConfig.autoCleanupInterval);
+    }
+
+    stopAutoCleanup() {
+        if (this.autoCleanupIntervalId) {
+            clearInterval(this.autoCleanupIntervalId);
+            this.autoCleanupIntervalId = null;
+            if (this.duplicatePreventionConfig.enableLogging) {
+                console.log('[AutoCleanup] Stopped automatic cleanup');
+            }
+        }
     }
 
     init() {
@@ -345,6 +489,64 @@ class RestaurantPOS {
         return `TEMP-${Date.now()}${Math.floor(Math.random() * 1000)}`;
     }
 
+    createOrderHash(order) {
+        // Normalize and sort items for consistent hashing
+        const normalizedItems = (order.items || []).map(item => ({
+            name: (item.name || '').trim().toLowerCase(),
+            price: parseFloat(item.price || 0).toFixed(2),
+            quantity: parseInt(item.quantity || 1),
+            total: parseFloat(item.total || 0).toFixed(2)
+        })).sort((a, b) => a.name.localeCompare(b.name));
+
+        // Create comprehensive content object with all relevant fields
+        const content = {
+            customer_name: (order.customer_name || '').trim().toLowerCase(),
+            customer_phone: (order.customer_phone || '').trim(),
+            table_number: (order.table_number || '').trim().toLowerCase(),
+            items: normalizedItems,
+            subtotal: parseFloat(order.subtotal || 0).toFixed(2),
+            gst_rate: parseFloat(order.gst_rate || 5).toFixed(2),
+            tax_amount: parseFloat(order.tax_amount || 0).toFixed(2),
+            total: parseFloat(order.total || 0).toFixed(2),
+            payment_mode: (order.payment_mode || '').trim().toLowerCase(),
+            generated_by: (order.generated_by || 'cashier').trim().toLowerCase()
+        };
+
+        // Use crypto-like hashing for client-side (fallback to simple hash if crypto not available)
+        let hash = '';
+        try {
+            if (window.crypto && window.crypto.subtle) {
+                // Use Web Crypto API if available
+                const encoder = new TextEncoder();
+                const data = encoder.encode(JSON.stringify(content));
+                return crypto.subtle.digest('SHA-256', data).then(buffer => {
+                    const hashArray = Array.from(new Uint8Array(buffer));
+                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                });
+            } else {
+                // Fallback to simple hash
+                const str = JSON.stringify(content);
+                let h = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    h = ((h << 5) - h) + char;
+                    h = h & h; // Convert to 32-bit integer
+                }
+                return Math.abs(h).toString(16);
+            }
+        } catch (error) {
+            // Final fallback
+            const str = JSON.stringify(content);
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                h = ((h << 5) - h) + char;
+                h = h & h;
+            }
+            return Math.abs(h).toString(16);
+        }
+    }
+
     // Authentication
     handleLogin(e) {
         e.preventDefault();
@@ -591,6 +793,12 @@ class RestaurantPOS {
             return;
         }
 
+        const completeOrderBtn = document.querySelector(`.pending-order-actions button[onclick="pos.completeOrder(${orderId})"]`);
+        if (completeOrderBtn) {
+            completeOrderBtn.disabled = true;
+            completeOrderBtn.textContent = 'Completing...';
+        }
+
         fetch(`/api/orders/${orderId}/status`, {
             method: 'PUT',
             headers: {
@@ -606,6 +814,9 @@ class RestaurantPOS {
                 this.loadPendingOrders();
                 this.loadAdminBillManagement(); // Refresh stats
                 this.showToast('Order completed successfully!', 'success');
+
+                // Close bill preview modal if open
+                this.closeModal('billModal');
             } else {
                 throw new Error('Failed to complete order');
             }
@@ -613,6 +824,12 @@ class RestaurantPOS {
         .catch(error => {
             console.error('Error completing order:', error);
             this.showToast('Error completing order', 'error');
+        })
+        .finally(() => {
+            if (completeOrderBtn) {
+                completeOrderBtn.disabled = false;
+                completeOrderBtn.textContent = 'Complete Order';
+            }
         });
     }
 
@@ -762,7 +979,7 @@ class RestaurantPOS {
         }
     }
 
-        saveAdminBill() {
+    async saveAdminBill() {
         const customerName = document.getElementById('adminCustomerName').value.trim();
         const customerPhone = document.getElementById('adminCustomerPhone').value.trim();
         const tableNumber = document.getElementById('adminTableNumber').value.trim();
@@ -808,6 +1025,24 @@ class RestaurantPOS {
             generated_by: 'admin'
         };
 
+        // Generate hash of order content to detect duplicates
+        const orderContentHash = await this.createOrderHash(order);
+
+        // Check if this order is already pending submission
+        if (this.pendingOrderHashes.has(orderContentHash)) {
+            this.showToast('Duplicate bill not allowed. This order is already being submitted.', 'warning');
+            return;
+        }
+
+        // Add hash to pending set
+        this.pendingOrderHashes.add(orderContentHash);
+
+        // Disable save button to prevent multiple clicks
+        const saveBtn = document.getElementById('saveAdminBill');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+        }
+
         // Save order to database
         fetch('/api/orders', {
             method: 'POST',
@@ -816,6 +1051,14 @@ class RestaurantPOS {
         })
         .then(response => response.json())
         .then(data => {
+            // Remove hash from pending set
+            this.pendingOrderHashes.delete(orderContentHash);
+
+            // Re-enable save button
+            if (saveBtn) {
+                saveBtn.disabled = false;
+            }
+
             if (data.success) {
                 // Update order with server-generated bill number
                 if (data.billNumber) {
@@ -861,6 +1104,14 @@ class RestaurantPOS {
             }
         })
         .catch(error => {
+            // Remove hash from pending set on error
+            this.pendingOrderHashes.delete(orderContentHash);
+
+            // Re-enable save button
+            if (saveBtn) {
+                saveBtn.disabled = false;
+            }
+
             console.error('Error saving admin order:', error);
             this.showToast('Error saving order to database', 'error');
         });
@@ -2152,6 +2403,15 @@ class RestaurantPOS {
             return;
         }
 
+        // Generate hash of current order content to detect duplicates
+        const orderContentHash = this.createOrderHash(this.currentOrder);
+
+        // Check if this order is already pending submission
+        if (this.pendingOrderHashes.has(orderContentHash)) {
+            this.showToast('This order is already being submitted. Please wait.', 'info');
+            return;
+        }
+
         // Check if this order was already sent
         if (this.lastSentOrderId === this.currentOrder.id) {
             this.showToast('This order has already been completed', 'info');
@@ -2169,13 +2429,16 @@ class RestaurantPOS {
 
         if (!this.currentOrder) {
             this.showToast('No current order to complete', 'error');
-        this.isCompletingOrder = false;
-        if (completeBillBtn) {
-            completeBillBtn.disabled = false;
-            completeBillBtn.textContent = 'Complete Bill';
-        }
+            this.isCompletingOrder = false;
+            if (completeBillBtn) {
+                completeBillBtn.disabled = false;
+                completeBillBtn.textContent = 'Complete Bill';
+            }
             return;
         }
+
+        // Add hash to pending set
+        this.pendingOrderHashes.add(orderContentHash);
 
         console.log('Sending order to server:', this.currentOrder);
 
@@ -2196,6 +2459,10 @@ class RestaurantPOS {
         })
         .then(data => {
             console.log('Server response data:', data);
+
+            // Remove hash from pending set
+            this.pendingOrderHashes.delete(orderContentHash);
+
             if (data.success) {
                 // Update the current order with server-generated bill number
                 if (data.billNumber) {
@@ -2240,27 +2507,31 @@ class RestaurantPOS {
                 document.querySelectorAll('.payment-btn').forEach(btn => btn.classList.remove('active'));
                 const cashBtn = document.querySelector('.payment-btn[data-mode="Cash"]');
                 if (cashBtn) cashBtn.classList.add('active');
-
-                // Update UI
-                this.updateCart();
-                this.closeModal('billModal');
-
-                this.showToast('Order completed successfully!', 'success');
-            } else {
-                console.error('Server returned success=false:', data);
-                throw new Error(data.error || 'Failed to save order');
             }
-            this.isCompletingOrder = false;
-            if (completeBillBtn) {
-                completeBillBtn.disabled = false;
-            }
+
+            // Close bill preview modal
+            this.closeModal('billModal');
         })
         .catch(error => {
-            console.error('Error in completeBill:', error);
-            this.showToast('Error saving order to database: ' + error.message, 'error');
+            console.error('Error completing order:', error);
+
+            // Handle specific error types
+            if (error.message.includes('409')) {
+                this.showToast('This order has already been processed. Please check your order history.', 'warning');
+            } else {
+                this.showToast('Error completing order. Please try again.', 'error');
+            }
+
+            // Remove hash from pending set on error
+            this.pendingOrderHashes.delete(orderContentHash);
+        })
+        .finally(() => {
+            // Always re-enable the button and reset completion flag
             this.isCompletingOrder = false;
+            const completeBillBtn = document.getElementById('completeBill');
             if (completeBillBtn) {
                 completeBillBtn.disabled = false;
+                completeBillBtn.textContent = 'Complete Bill';
             }
         });
     }

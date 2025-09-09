@@ -299,31 +299,400 @@ app.post('/api/orders', (req, res) => {
     const order = req.body;
     console.log('Received order data:', order);
 
-    // Check for duplicate order based on order ID to prevent data redundancy
+    // Enhanced duplicate detection
+    checkForDuplicateOrder(order, (isDuplicate, existingOrder) => {
+        if (isDuplicate) {
+            console.log(`Duplicate order detected:`, existingOrder);
+            return res.status(409).json({
+                error: 'Duplicate order',
+                message: 'This order has already been processed',
+                existingBillNumber: existingOrder.bill_number,
+                existingOrderId: existingOrder.id
+            });
+        }
+
+        // No duplicate found, proceed with normal processing
+        processOrder(order, res);
+    });
+});
+
+// In-memory storage for request deduplication with monitoring
+const requestLocks = new Map();
+const LOCK_TIMEOUT = 30000; // 30 seconds
+const CLEANUP_INTERVAL = 5000; // Clean up every 5 seconds
+const MAX_LOCKS = 1000; // Maximum number of locks to prevent memory issues
+
+// Statistics for monitoring
+let lockStats = {
+    totalLocksCreated: 0,
+    totalLocksCleaned: 0,
+    totalLocksExpired: 0,
+    totalLocksActive: 0,
+    lastCleanupTime: Date.now(),
+    averageLockDuration: 0
+};
+
+// Cleanup expired locks periodically with enhanced monitoring
+setInterval(() => {
+    const now = Date.now();
+    const expiredLocks = [];
+    let cleanedCount = 0;
+    let totalDuration = 0;
+    let activeLocks = 0;
+
+    for (const [key, lockTime] of requestLocks.entries()) {
+        const lockAge = now - lockTime;
+        if (lockAge > LOCK_TIMEOUT) {
+            requestLocks.delete(key);
+            expiredLocks.push(key);
+            cleanedCount++;
+            totalDuration += lockAge;
+        } else {
+            activeLocks++;
+        }
+    }
+
+    // Update statistics
+    lockStats.totalLocksCleaned += cleanedCount;
+    lockStats.totalLocksExpired += cleanedCount;
+    lockStats.totalLocksActive = activeLocks;
+    lockStats.lastCleanupTime = now;
+
+    if (cleanedCount > 0) {
+        lockStats.averageLockDuration = totalDuration / cleanedCount;
+        console.log(`[LOCK_CLEANUP] Cleaned up ${cleanedCount} expired locks. Active locks: ${activeLocks}. Avg duration: ${Math.round(lockStats.averageLockDuration)}ms`);
+    }
+
+    // Emergency cleanup if too many locks
+    if (requestLocks.size > MAX_LOCKS) {
+        console.warn(`[LOCK_CLEANUP] Emergency cleanup: Too many locks (${requestLocks.size}), clearing all expired locks`);
+        const emergencyCleaned = [];
+        for (const [key, lockTime] of requestLocks.entries()) {
+            if (now - lockTime > LOCK_TIMEOUT) {
+                requestLocks.delete(key);
+                emergencyCleaned.push(key);
+            }
+        }
+        console.log(`[LOCK_CLEANUP] Emergency cleanup removed ${emergencyCleaned.length} locks`);
+    }
+
+    // Log statistics every minute
+    if (now - lockStats.lastCleanupTime > 60000) {
+        console.log(`[LOCK_STATS] Total locks created: ${lockStats.totalLocksCreated}, Active: ${lockStats.totalLocksActive}, Cleaned: ${lockStats.totalLocksCleaned}`);
+    }
+}, CLEANUP_INTERVAL);
+
+// Function to safely add a lock with monitoring
+function addRequestLock(key, timestamp = Date.now()) {
+    if (requestLocks.size >= MAX_LOCKS) {
+        console.warn(`[LOCK_WARNING] Maximum locks reached (${MAX_LOCKS}), cannot add new lock for: ${key}`);
+        return false;
+    }
+
+    requestLocks.set(key, timestamp);
+    lockStats.totalLocksCreated++;
+    return true;
+}
+
+// Function to safely remove a lock
+function removeRequestLock(key) {
+    const removed = requestLocks.delete(key);
+    if (removed) {
+        lockStats.totalLocksActive = Math.max(0, lockStats.totalLocksActive - 1);
+    }
+    return removed;
+}
+
+// Function to get lock statistics
+function getLockStats() {
+    return {
+        ...lockStats,
+        currentLocks: requestLocks.size,
+        oldestLock: requestLocks.size > 0 ? Math.min(...Array.from(requestLocks.values())) : null,
+        newestLock: requestLocks.size > 0 ? Math.max(...Array.from(requestLocks.values())) : null
+    };
+}
+
+// Duplicate detection metrics and logging
+let duplicateDetectionMetrics = {
+    totalChecks: 0,
+    totalDuplicatesFound: 0,
+    totalDuplicatesPrevented: 0,
+    totalFalsePositives: 0,
+    totalProcessingTime: 0,
+    averageProcessingTime: 0,
+    checksByType: {
+        idMatch: 0,
+        contentMatch: 0,
+        lockActive: 0
+    },
+    duplicatesByType: {
+        idMatch: 0,
+        contentMatch: 0,
+        lockActive: 0
+    },
+    lastMetricsUpdate: Date.now(),
+    hourlyStats: [],
+    dailyStats: []
+};
+
+// Function to log duplicate detection metrics
+function logDuplicateDetectionMetrics(operation, result, processingTime, details = {}) {
+    duplicateDetectionMetrics.totalChecks++;
+    duplicateDetectionMetrics.totalProcessingTime += processingTime;
+
+    if (result.isDuplicate) {
+        duplicateDetectionMetrics.totalDuplicatesFound++;
+        if (result.prevented) {
+            duplicateDetectionMetrics.totalDuplicatesPrevented++;
+        }
+    }
+
+    // Track by type
+    if (details.type) {
+        duplicateDetectionMetrics.checksByType[details.type] = (duplicateDetectionMetrics.checksByType[details.type] || 0) + 1;
+        if (result.isDuplicate) {
+            duplicateDetectionMetrics.duplicatesByType[details.type] = (duplicateDetectionMetrics.duplicatesByType[details.type] || 0) + 1;
+        }
+    }
+
+    // Calculate average processing time
+    duplicateDetectionMetrics.averageProcessingTime = duplicateDetectionMetrics.totalProcessingTime / duplicateDetectionMetrics.totalChecks;
+
+    // Log detailed metrics every 100 checks or when duplicates are found
+    if (duplicateDetectionMetrics.totalChecks % 100 === 0 || result.isDuplicate) {
+        console.log(`[DUPLICATE_METRICS] Total checks: ${duplicateDetectionMetrics.totalChecks}`);
+        console.log(`[DUPLICATE_METRICS] Duplicates found: ${duplicateDetectionMetrics.totalDuplicatesFound} (${duplicateDetectionMetrics.totalDuplicatesPrevented} prevented)`);
+        console.log(`[DUPLICATE_METRICS] Average processing time: ${Math.round(duplicateDetectionMetrics.averageProcessingTime)}ms`);
+        console.log(`[DUPLICATE_METRICS] Detection rate: ${((duplicateDetectionMetrics.totalDuplicatesFound / duplicateDetectionMetrics.totalChecks) * 100).toFixed(2)}%`);
+
+        if (result.isDuplicate) {
+            console.log(`[DUPLICATE_METRICS] Duplicate detected - Type: ${details.type}, Processing time: ${processingTime}ms`);
+        }
+    }
+
+    // Store hourly stats every hour
+    const now = Date.now();
+    if (now - duplicateDetectionMetrics.lastMetricsUpdate > 3600000) { // 1 hour
+        duplicateDetectionMetrics.hourlyStats.push({
+            timestamp: now,
+            checks: duplicateDetectionMetrics.totalChecks,
+            duplicates: duplicateDetectionMetrics.totalDuplicatesFound,
+            averageTime: duplicateDetectionMetrics.averageProcessingTime
+        });
+
+        // Keep only last 24 hours
+        if (duplicateDetectionMetrics.hourlyStats.length > 24) {
+            duplicateDetectionMetrics.hourlyStats.shift();
+        }
+
+        duplicateDetectionMetrics.lastMetricsUpdate = now;
+    }
+}
+
+// Function to get duplicate detection statistics
+function getDuplicateDetectionStats() {
+    const now = Date.now();
+    const oneHourAgo = now - 3600000;
+    const oneDayAgo = now - 86400000;
+
+    const hourlyStats = duplicateDetectionMetrics.hourlyStats.filter(stat => stat.timestamp > oneHourAgo);
+    const dailyStats = duplicateDetectionMetrics.hourlyStats.filter(stat => stat.timestamp > oneDayAgo);
+
+    return {
+        ...duplicateDetectionMetrics,
+        detectionRate: duplicateDetectionMetrics.totalChecks > 0 ?
+            (duplicateDetectionMetrics.totalDuplicatesFound / duplicateDetectionMetrics.totalChecks) * 100 : 0,
+        preventionRate: duplicateDetectionMetrics.totalDuplicatesFound > 0 ?
+            (duplicateDetectionMetrics.totalDuplicatesPrevented / duplicateDetectionMetrics.totalDuplicatesFound) * 100 : 0,
+        hourlyAverage: hourlyStats.length > 0 ?
+            hourlyStats.reduce((sum, stat) => sum + stat.duplicates, 0) / hourlyStats.length : 0,
+        dailyAverage: dailyStats.length > 0 ?
+            dailyStats.reduce((sum, stat) => sum + stat.duplicates, 0) / dailyStats.length : 0
+    };
+}
+
+// API endpoint to get duplicate detection metrics
+app.get('/api/metrics/duplicate-detection', (req, res) => {
+    res.json(getDuplicateDetectionStats());
+});
+
+// API endpoint to get lock statistics
+app.get('/api/metrics/locks', (req, res) => {
+    res.json(getLockStats());
+});
+
+// Enhanced duplicate detection function with detailed logging
+function checkForDuplicateOrder(order, callback) {
+    const startTime = Date.now();
+    const orderHash = createOrderHash(order);
+    const lockKey = `order_${orderHash}`;
+
+    console.log(`[DUPLICATE_CHECK] Starting duplicate check for order hash: ${orderHash.substring(0, 16)}...`);
+    console.log(`[DUPLICATE_CHECK] Order details: Customer=${order.customer_name || 'N/A'}, Table=${order.table_number}, Total=${order.total}, Items=${order.items?.length || 0}`);
+
+    // Check 1: Request lock to prevent race conditions
+    if (requestLocks.has(lockKey)) {
+        const lockTime = requestLocks.get(lockKey);
+        const lockAge = Date.now() - lockTime;
+        if (lockAge < LOCK_TIMEOUT) {
+            console.log(`[DUPLICATE_CHECK] Request lock active for order hash: ${orderHash.substring(0, 16)}..., lock age: ${lockAge}ms`);
+            return callback(true, { lock: true, message: 'Request already in progress' });
+        } else {
+            // Lock expired, remove it
+            requestLocks.delete(lockKey);
+            console.log(`[DUPLICATE_CHECK] Expired lock removed for order hash: ${orderHash.substring(0, 16)}..., lock age: ${lockAge}ms`);
+        }
+    }
+
+    // Set lock for this request
+    requestLocks.set(lockKey, Date.now());
+    console.log(`[DUPLICATE_CHECK] Lock set for order hash: ${orderHash.substring(0, 16)}...`);
+
+    // Check 2: Exact order ID match
     if (order.id) {
-        db.get("SELECT id, bill_number FROM orders WHERE id = ?", [order.id], (err, row) => {
+        console.log(`[DUPLICATE_CHECK] Checking for exact order ID match: ${order.id}`);
+        db.get("SELECT id, bill_number, customer_name, table_number, total, created_at FROM orders WHERE id = ?", [order.id], (err, row) => {
             if (err) {
-                console.error('Error checking order ID existence:', err.message);
-                return res.status(500).json({ error: 'Database error', details: err.message });
+                console.error(`[DUPLICATE_CHECK] Error checking order ID existence:`, err.message);
+                requestLocks.delete(lockKey);
+                return callback(false);
             }
 
             if (row) {
-                console.log(`Duplicate order detected with ID ${order.id}, existing bill number: ${row.bill_number}`);
-                return res.status(409).json({
-                    error: 'Duplicate order',
-                    message: 'An order with this ID already exists',
-                    existingBillNumber: row.bill_number
-                });
+                console.log(`[DUPLICATE_CHECK] Duplicate order detected with ID ${order.id}, existing bill number: ${row.bill_number}, created: ${row.created_at}`);
+                console.log(`[DUPLICATE_CHECK] Duplicate check completed in ${Date.now() - startTime}ms - RESULT: DUPLICATE (ID match)`);
+                requestLocks.delete(lockKey);
+                return callback(true, row);
             }
 
-            // No duplicate found, proceed with normal processing
-            processOrder(order, res);
+            console.log(`[DUPLICATE_CHECK] No exact ID match found, proceeding to content-based check`);
+            // Check 3: Content-based duplicate detection (same customer, table, items, total within last 5 minutes)
+            checkContentDuplicate(order, (isDuplicate, existingOrder) => {
+                if (isDuplicate) {
+                    requestLocks.delete(lockKey);
+                }
+                console.log(`[DUPLICATE_CHECK] Duplicate check completed in ${Date.now() - startTime}ms - RESULT: ${isDuplicate ? 'DUPLICATE (Content)' : 'NO DUPLICATE'}`);
+                callback(isDuplicate, existingOrder);
+            });
         });
     } else {
-        // No order ID provided, proceed with normal processing
-        processOrder(order, res);
+        console.log(`[DUPLICATE_CHECK] No order ID provided, proceeding to content-based check`);
+        // No order ID provided, check content-based duplicate
+        checkContentDuplicate(order, (isDuplicate, existingOrder) => {
+            if (isDuplicate) {
+                requestLocks.delete(lockKey);
+            }
+            console.log(`[DUPLICATE_CHECK] Duplicate check completed in ${Date.now() - startTime}ms - RESULT: ${isDuplicate ? 'DUPLICATE (Content)' : 'NO DUPLICATE'}`);
+            callback(isDuplicate, existingOrder);
+        });
     }
-});
+}
+
+// Content-based duplicate detection
+function checkContentDuplicate(order, callback) {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    // Create a hash of the order content for comparison
+    const orderHash = createOrderHash(order);
+
+    // Check for orders with same content within last 5 minutes
+    const query = `
+        SELECT id, bill_number, customer_name, table_number, total, created_at
+        FROM orders
+        WHERE created_at > ?
+        AND customer_name = ?
+        AND table_number = ?
+        AND total = ?
+        AND generated_by = ?
+    `;
+
+    const params = [
+        fiveMinutesAgo,
+        order.customer_name || '',
+        order.table_number,
+        order.total,
+        order.generated_by || 'cashier'
+    ];
+
+    db.all(query, params, (err, rows) => {
+        if (err) {
+            console.error('Error checking content duplicate:', err.message);
+            return callback(false);
+        }
+
+        if (rows && rows.length > 0) {
+            // Check if items match
+            for (const existingOrder of rows) {
+                if (ordersHaveSameItems(order, existingOrder)) {
+                    console.log(`Content duplicate detected: same order content within 5 minutes, existing bill: ${existingOrder.bill_number}`);
+                    return callback(true, existingOrder);
+                }
+            }
+        }
+
+        // No duplicate found
+        callback(false);
+    });
+}
+
+// Helper function to create a comprehensive hash of order content
+function createOrderHash(order) {
+    // Normalize and sort items for consistent hashing
+    const normalizedItems = (order.items || []).map(item => ({
+        name: (item.name || '').trim().toLowerCase(),
+        price: parseFloat(item.price || 0).toFixed(2),
+        quantity: parseInt(item.quantity || 1),
+        total: parseFloat(item.total || 0).toFixed(2)
+    })).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Create comprehensive content object with all relevant fields
+    const content = {
+        customer_name: (order.customer_name || '').trim().toLowerCase(),
+        customer_phone: (order.customer_phone || '').trim(),
+        table_number: (order.table_number || '').trim().toLowerCase(),
+        items: normalizedItems,
+        subtotal: parseFloat(order.subtotal || 0).toFixed(2),
+        gst_rate: parseFloat(order.gst_rate || 5).toFixed(2),
+        tax_amount: parseFloat(order.tax_amount || 0).toFixed(2),
+        total: parseFloat(order.total || 0).toFixed(2),
+        payment_mode: (order.payment_mode || '').trim().toLowerCase(),
+        generated_by: (order.generated_by || 'cashier').trim().toLowerCase()
+    };
+
+    // Use crypto for more secure and consistent hashing
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex');
+
+    return hash;
+}
+
+// Helper function to check if two orders have the same items
+function ordersHaveSameItems(order1, order2) {
+    if (!order1.items || !order2.items) return false;
+
+    // Check if both orders have the same number of items
+    if (order1.items.length !== order2.items.length) return false;
+
+    // Create sorted copies of items for comparison
+    const items1 = [...order1.items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const items2 = [...order2.items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Compare each item in detail
+    for (let i = 0; i < items1.length; i++) {
+        const item1 = items1[i];
+        const item2 = items2[i];
+
+        // Compare item name, quantity, and price
+        if (item1.name !== item2.name ||
+            item1.quantity !== item2.quantity ||
+            item1.price !== item2.price) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 function processOrder(order, res) {
     // Check if this is a temporary bill number from frontend
@@ -335,6 +704,11 @@ function processOrder(order, res) {
         billNumber = generateUniqueBillNumber();
         console.log(`Generated new bill number ${billNumber} for ${isTempBillNumber ? 'temp' : 'missing'} bill number`);
     }
+
+    // Always set order status to 'completed' for orders submitted via POST /api/orders
+    // This ensures orders are marked as completed when saved from the cashier interface
+    let orderStatus = 'completed';
+    console.log(`Order status set to 'completed' for submitted order`);
 
     let retryCount = 0;
     const maxRetries = 5;
@@ -361,12 +735,13 @@ function processOrder(order, res) {
             }
 
             // Bill number is unique, proceed with insertion
+            console.log(`Inserting order with status: ${orderStatus}`);
             db.run(`INSERT INTO orders (bill_number, customer_name, customer_phone, table_number, items, subtotal, gst_rate, tax_amount, total, payment_mode, cashier_id, cashier_name, status, date, generated_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [billNumber, order.customer_name, order.customer_phone, order.table_number,
                  JSON.stringify(order.items), order.subtotal, order.gst_rate, order.tax_amount,
                  order.total, order.payment_mode, order.cashier_id, order.cashier_name,
-                 order.status, order.date, order.generated_by || 'cashier'],
+                 orderStatus, order.date, order.generated_by || 'cashier'],
                 function(err) {
                     if (err) {
                         console.error('Error saving order:', err.message);

@@ -2214,9 +2214,9 @@ class RestaurantPOS {
         this.showToast('Cart cleared', 'info');
     }
 
-    generateBill() {
+    async generateBill() {
         console.log('Generating bill'); // Debug log
-        
+
         const customerNameInput = document.getElementById('customerName');
         const customerPhoneInput = document.getElementById('customerPhone');
         const tableNumberInput = document.getElementById('tableNumber');
@@ -2261,12 +2261,101 @@ class RestaurantPOS {
             payment_mode: this.selectedPaymentMode,
             cashier_id: this.currentUser.id,
             cashier_name: this.currentUser.name,
-            status: 'pending',
+            status: 'completed',
             created_at: new Date().toISOString(),
             date: this.getTodayDate()
         };
 
-        this.showBillPreview();
+        // Generate hash of current order content to detect duplicates
+        const orderContentHash = await this.createOrderHash(this.currentOrder);
+
+        // Check if this order is already pending submission
+        if (this.pendingOrderHashes.has(orderContentHash)) {
+            this.showToast('This order is already being submitted. Please wait.', 'info');
+            return;
+        }
+
+        // Check if this order was already sent
+        if (this.lastSentOrderId === this.currentOrder.id) {
+            this.showToast('This order has already been completed', 'info');
+            return;
+        }
+
+        // Add hash to pending set
+        this.pendingOrderHashes.add(orderContentHash);
+
+        console.log('Saving completed order to server:', this.currentOrder);
+
+        try {
+            // Save order to database
+            const response = await fetch('/api/orders', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(this.currentOrder)
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Server response data:', data);
+
+            // Remove hash from pending set
+            this.pendingOrderHashes.delete(orderContentHash);
+
+            if (data.success) {
+                // Update the current order with server-generated bill number
+                if (data.billNumber) {
+                    this.currentOrder.billNumber = data.billNumber;
+                    console.log(`Updated bill number to server-generated: ${data.billNumber}`);
+                }
+
+                // Check if order already exists in local data to avoid duplication
+                const existingOrderIndex = this.data.orders.findIndex(order => order.id === this.currentOrder.id);
+                if (existingOrderIndex === -1) {
+                    this.data.orders.unshift(this.currentOrder);
+                    console.log('Order added to local data, total orders:', this.data.orders.length);
+                } else {
+                    // Replace existing order with updated one
+                    this.data.orders[existingOrderIndex] = this.currentOrder;
+                    console.log('Order updated in local data at index:', existingOrderIndex);
+                }
+
+                // Mark this order as sent to prevent duplicates
+                this.lastSentOrderId = this.currentOrder.id;
+
+                // Update bill number
+                this.currentOrder.billNumber = data.billNumber || billNumber;
+
+                this.showToast(`Bill generated and completed successfully! Bill #${this.currentOrder.billNumber}`, 'success');
+
+                // Show bill preview with the completed order
+                this.showBillPreview();
+            } else {
+                // Handle server-side duplicate detection
+                if (data.error === 'Duplicate order') {
+                    this.showToast(`Bill already exists with number: ${data.existingBillNumber}`, 'warning');
+                    console.log('Server detected duplicate order:', data.existingBillNumber);
+                    return;
+                }
+                throw new Error(data.error || 'Failed to save order');
+            }
+        } catch (error) {
+            console.error('Error saving completed order:', error);
+
+            // Handle specific error types
+            if (error.message.includes('409')) {
+                this.showToast('This order has already been processed. Please check your order history.', 'warning');
+            } else {
+                this.showToast('Error completing order. Please try again.', 'error');
+            }
+
+            // Remove hash from pending set on error
+            this.pendingOrderHashes.delete(orderContentHash);
+        }
     }
 
     showBillPreview() {
@@ -3711,6 +3800,13 @@ class RestaurantPOS {
         if (downloadBillPDFBtn) {
             downloadBillPDFBtn.addEventListener('click', () => {
                 this.downloadPDF();
+            });
+        }
+
+        const closeBillBtn = document.getElementById('closeBill');
+        if (closeBillBtn) {
+            closeBillBtn.addEventListener('click', () => {
+                this.closeModal('billModal');
             });
         }
 

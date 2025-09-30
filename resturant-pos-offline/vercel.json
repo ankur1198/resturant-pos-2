@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "server.js",
+      "src": "resturant-pos-2/resturant-pos-offline/server.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "server.js"
+      "dest": "resturant-pos-2/resturant-pos-offline/server.js"
     }
   ]
 }

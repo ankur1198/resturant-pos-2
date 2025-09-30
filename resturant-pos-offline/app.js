@@ -99,20 +99,24 @@ class RestaurantPOS {
                 });
             }
             
-            // FIX: Improved currentOrder restoration
+            // FIX: Improved currentOrder restoration - only restore pending orders
             if (this.data.orders && this.data.orders.length > 0) {
                 this.data.orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
                 
-                const mostRecentOrder = this.data.orders.find(order => 
-                    order.status === 'completed' && 
+                const pendingOrder = this.data.orders.find(order => 
+                    order.status === 'pending' && 
                     Array.isArray(order.items) && 
                     order.items.length > 0
                 );
                 
-                if (mostRecentOrder) {
-                    this.currentOrder = mostRecentOrder;
-                    console.log('Restored currentOrder:', this.currentOrder.billNumber);
+                if (pendingOrder) {
+                    this.currentOrder = pendingOrder;
+                    console.log('Restored pending currentOrder:', this.currentOrder.billNumber);
+                } else {
+                    this.currentOrder = null;
                 }
+            } else {
+                this.currentOrder = null;
             }
             
             this.currentUser = null;
@@ -361,8 +365,9 @@ class RestaurantPOS {
         
         if (this.login(username, password)) {
             this.hideLoginError();
-            // After successful login, show bill preview if currentOrder exists
-            if (this.currentOrder) {
+            // After successful login, show bill preview only for cashiers with pending currentOrder
+            if (this.currentUser && this.currentUser.role === 'cashier' && 
+                this.currentOrder && this.currentOrder.status === 'pending') {
                 this.showBillPreview();
             }
         } else {
@@ -395,6 +400,22 @@ class RestaurantPOS {
             .catch(error => {
                 console.error('Error updating last login:', error);
             });
+
+            // For cashiers, restore pending orders specific to this user
+            if (user.role === 'cashier') {
+                const userPendingOrder = this.data.orders.find(order => 
+                    order.status === 'pending' && order.cashier_id === user.id
+                );
+                if (userPendingOrder) {
+                    this.currentOrder = userPendingOrder;
+                    console.log('Restored user-specific pending order:', this.currentOrder.billNumber);
+                } else {
+                    this.currentOrder = null;
+                }
+            } else {
+                // For admin, clear currentOrder
+                this.currentOrder = null;
+            }
 
             if (user.role === 'admin') {
                 this.showScreen('adminScreen');

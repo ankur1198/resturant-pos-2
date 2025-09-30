@@ -348,15 +348,25 @@ function processOrder(order, res) {
             }
 
             if (row) {
-                // Bill number exists, generate new one and retry
-                if (retryCount < maxRetries) {
-                    console.log(`Bill number ${billNumber} already exists, generating new one (attempt ${retryCount + 1}/${maxRetries})`);
-                    billNumber = generateUniqueBillNumber();
-                    retryCount++;
-                    return tryInsert();
+                // Bill number exists, check if it was provided in the order or generated
+                if (order.billNumber && order.billNumber === billNumber) {
+                    // Bill number was provided and exists, treat as duplicate
+                    console.log(`Duplicate order detected: bill number ${billNumber} already exists`);
+                    return res.status(409).json({
+                        error: 'Duplicate order',
+                        message: 'An order with this bill number already exists'
+                    });
                 } else {
-                    console.error('Max retries exceeded for generating unique bill number');
-                    return res.status(500).json({ error: 'Failed to generate unique bill number after multiple attempts' });
+                    // Bill number was generated and exists (collision), generate new one and retry
+                    if (retryCount < maxRetries) {
+                        console.log(`Bill number ${billNumber} already exists, generating new one (attempt ${retryCount + 1}/${maxRetries})`);
+                        billNumber = generateUniqueBillNumber();
+                        retryCount++;
+                        return tryInsert();
+                    } else {
+                        console.error('Max retries exceeded for generating unique bill number');
+                        return res.status(500).json({ error: 'Failed to generate unique bill number after multiple attempts' });
+                    }
                 }
             }
 

@@ -2113,6 +2113,36 @@ select.form-control {
 }
 
 /* Responsive Design */
+
+/* Large tablets and small laptops */
+@media (max-width: 1024px) {
+  .admin-layout {
+    grid-template-columns: 200px 1fr;
+  }
+
+  .cashier-main {
+    grid-template-columns: 1fr 350px;
+  }
+
+  .menu-items-display {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  .menu-items-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .btn {
+    min-height: 44px;
+    padding: var(--space-10) var(--space-16);
+  }
+
+  .form-control {
+    min-height: 44px;
+  }
+}
+
+/* Tablets */
 @media (max-width: 768px) {
   .admin-layout {
     grid-template-areas:
@@ -2127,40 +2157,58 @@ select.form-control {
     flex-direction: row;
     overflow-x: auto;
     padding: var(--space-12);
+    gap: var(--space-4);
+  }
+
+  .nav-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .section-header {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--space-12);
   }
 
   .order-filters,
   .date-filters {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--space-8);
   }
 
   .cashier-main {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
+    height: auto;
   }
 
   .history-panel {
     right: 0;
+    position: fixed;
+    top: 80px;
+    bottom: 0;
+    width: 100%;
+    z-index: 100;
   }
 
   .order-panel {
     border-top: 1px solid var(--color-border);
     border-right: none;
-    max-height: 50vh;
+    max-height: 60vh;
+    position: sticky;
+    bottom: 0;
   }
 
   .menu-panel {
     border-right: none;
+    padding: var(--space-16);
   }
 
   .menu-items-display {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-12);
   }
 
   .payment-modes {
@@ -2169,10 +2217,11 @@ select.form-control {
 
   .order-actions {
     grid-template-columns: 1fr;
+    gap: var(--space-8);
   }
 
   .sales-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 
   .settings-grid {
@@ -2182,6 +2231,7 @@ select.form-control {
   .modal-content {
     width: 95%;
     margin: var(--space-8);
+    max-height: 90vh;
   }
 
   .toast-container {
@@ -2199,10 +2249,25 @@ select.form-control {
   }
 
   .admin-bill-stats {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .admin-bill-form {
     grid-template-columns: 1fr;
+  }
+
+  .btn {
+    min-height: 48px;
+    font-size: var(--font-size-lg);
+  }
+
+  .form-control {
+    font-size: var(--font-size-lg);
+    min-height: 48px;
   }
 }
 
+/* Mobile phones */
 @media (max-width: 480px) {
   .header-content {
     flex-direction: column;
@@ -2216,7 +2281,7 @@ select.form-control {
   }
 
   .admin-content {
-    padding: var(--space-16);
+    padding: var(--space-12);
   }
 
   .menu-items-grid {
@@ -2224,7 +2289,7 @@ select.form-control {
   }
 
   .menu-items-display {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   }
 
   .bill-receipt {
@@ -2234,5 +2299,37 @@ select.form-control {
 
   .payment-modes {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .customer-form {
+    grid-template-columns: 1fr;
+  }
+
+  .order-totals {
+    padding: var(--space-12);
+  }
+
+  .modal-content {
+    width: 98%;
+    margin: var(--space-4);
+  }
+
+  .btn {
+    min-height: 50px;
+    font-size: var(--font-size-lg);
+    padding: var(--space-12) var(--space-16);
+  }
+
+  .form-control {
+    font-size: var(--font-size-lg);
+    min-height: 50px;
+  }
+
+  .card {
+    margin-bottom: var(--space-12);
+  }
+
+  .stat-card {
+    padding: var(--space-16);
   }
 }

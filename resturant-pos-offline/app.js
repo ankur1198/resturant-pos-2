@@ -1108,6 +1108,11 @@ class RestaurantPOS {
                     console.log('Admin order updated in local data:', order.billNumber);
                 }
 
+                // Refresh sales reports if sales section is active
+                if (document.getElementById('salesSection')?.classList.contains('active')) {
+                    this.loadSalesReports();
+                }
+
                 this.currentOrder = order;
 
                 this.closeModal('adminBillModal');
@@ -1516,7 +1521,10 @@ class RestaurantPOS {
         }
     }
 
-    loadSalesReports(period = 'today') {
+    loadSalesReports(period = 'today', data = null) {
+        // Use provided data or fallback to this.data.orders
+        const ordersData = data || this.data.orders;
+
         const now = new Date();
         let startDate, endDate;
 
@@ -1538,7 +1546,7 @@ class RestaurantPOS {
                 endDate = now;
         }
 
-        const filteredOrders = this.data.orders.filter(order => {
+        const filteredOrders = ordersData.filter(order => {
             const orderDate = new Date(order.created_at);
             return orderDate >= startDate && orderDate < endDate;
         });
@@ -1556,6 +1564,39 @@ class RestaurantPOS {
         if (avgOrderEl) avgOrderEl.textContent = `₹${avgOrder.toFixed(2)}`;
 
         this.updatePaymentChart(filteredOrders);
+    }
+
+    // Polling functionality for sales reports
+    startSalesPolling(interval = 30000) { // Default 30 seconds
+        // Clear any existing polling
+        this.stopSalesPolling();
+
+        // Get current period from active filter button
+        const activeFilter = document.querySelector('.filter-btn.active');
+        const currentPeriod = activeFilter ? activeFilter.dataset.period : 'today';
+
+        this.salesPollingInterval = setInterval(async () => {
+            console.log('Refreshing sales reports via polling...');
+            try {
+                // Fetch fresh data from server
+                await this.loadDataFromServer();
+                // Then update sales reports with current period
+                this.loadSalesReports(currentPeriod);
+                console.log('Sales reports updated with fresh data');
+            } catch (error) {
+                console.error('Error refreshing sales reports:', error);
+            }
+        }, interval);
+
+        console.log(`Sales reports polling started with ${interval}ms interval`);
+    }
+
+    stopSalesPolling() {
+        if (this.salesPollingInterval) {
+            clearInterval(this.salesPollingInterval);
+            this.salesPollingInterval = null;
+            console.log('Sales reports polling stopped');
+        }
     }
 
     updatePaymentChart(orders) {
@@ -2330,6 +2371,11 @@ class RestaurantPOS {
                 // Update bill number
                 this.currentOrder.billNumber = data.billNumber || billNumber;
 
+                // Refresh sales reports if sales section is active
+                if (document.getElementById('salesSection')?.classList.contains('active')) {
+                    this.loadSalesReports();
+                }
+
                 this.showToast(`Bill generated and completed successfully! Bill #${this.currentOrder.billNumber}`, 'success');
 
                 // Show bill preview with the completed order
@@ -3048,6 +3094,18 @@ class RestaurantPOS {
     // Enhanced Export Functions
     exportSalesCSV() {
         console.log('Exporting sales CSV'); // Debug log
+
+        const escapeCSVField = (field) => {
+            if (field == null) return '';
+            const fieldStr = field.toString();
+            if (fieldStr.includes('"')) {
+                return `"${fieldStr.replace(/"/g, '""')}"`;
+            }
+            if (fieldStr.includes(',') || fieldStr.includes('\n') || fieldStr.includes('\r')) {
+                return `"${fieldStr}"`;
+            }
+            return fieldStr;
+        };
         
         const orders = this.getFilteredExportData();
         const csvContent = [
@@ -3066,7 +3124,7 @@ class RestaurantPOS {
                 order.payment_mode,
                 order.cashier_name,
                 order.generated_by || 'cashier'
-            ])
+            ].map(escapeCSVField))
         ].map(row => row.join(',')).join('\n');
         
         this.downloadFile(csvContent, 'sales_report.csv', 'text/csv');
@@ -3075,58 +3133,58 @@ class RestaurantPOS {
 
     exportSalesPDF() {
         console.log('Exporting sales PDF'); // Debug log
-        
+
         if (typeof window.jspdf === 'undefined') {
             this.showToast('PDF library not loaded', 'error');
             return;
         }
 
         this.showLoading();
-        
+
         try {
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF();
             const orders = this.getFilteredExportData();
-            
+
             // Title
             pdf.setFontSize(16);
             pdf.text('Sales Report', 105, 20, { align: 'center' });
-            
+
             pdf.setFontSize(12);
             pdf.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 105, 30, { align: 'center' });
-            
+
             // Summary
             const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
             const totalOrders = orders.length;
-            
+
             pdf.setFontSize(10);
             let yPos = 50;
             pdf.text(`Total Orders: ${totalOrders}`, 20, yPos);
             pdf.text(`Total Sales: ₹${totalSales.toFixed(2)}`, 120, yPos);
             yPos += 10;
-            
+
             pdf.text(`Average Order Value: ₹${totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : '0.00'}`, 20, yPos);
             yPos += 20;
-            
+
             // Table headers
             const headers = ['Bill#', 'Date', 'Customer', 'Items', 'Total', 'Payment'];
             const columnWidths = [25, 25, 40, 20, 25, 25];
             let xPos = 20;
-            
+
             pdf.setFontSize(8);
             headers.forEach((header, index) => {
                 pdf.text(header, xPos, yPos);
                 xPos += columnWidths[index];
             });
             yPos += 5;
-            
+
             // Table content
             orders.slice(0, 30).forEach(order => { // Limit to 30 orders per page
                 if (yPos > 270) {
                     pdf.addPage();
                     yPos = 30;
                 }
-                
+
                 xPos = 20;
                 const rowData = [
                     order.billNumber,
@@ -3136,23 +3194,91 @@ class RestaurantPOS {
                     `₹${order.total.toFixed(2)}`,
                     order.payment_mode
                 ];
-                
+
                 rowData.forEach((data, index) => {
                     pdf.text(data.toString(), xPos, yPos);
                     xPos += columnWidths[index];
                 });
                 yPos += 5;
             });
-            
+
             const filename = `Sales_Report_${new Date().toISOString().split('T')[0]}.pdf`;
             pdf.save(filename);
-            
+
             this.hideLoading();
             this.showToast('Sales PDF exported successfully!', 'success');
         } catch (error) {
             console.error('PDF export error:', error);
             this.hideLoading();
             this.showToast('Error exporting PDF', 'error');
+        }
+    }
+
+    exportSalesExcel() {
+        console.log('Exporting sales Excel'); // Debug log
+
+        if (typeof XLSX === 'undefined') {
+            this.showToast('Excel library not loaded', 'error');
+            return;
+        }
+
+        try {
+            const orders = this.getFilteredExportData();
+
+            // Prepare data for Excel
+            const excelData = orders.map(order => ({
+                'Bill Number': order.billNumber,
+                'Date': this.formatDate(order.created_at),
+                'Time': this.formatTime(order.created_at),
+                'Customer Name': order.customer_name || 'Walk-in Customer',
+                'Customer Phone': order.customer_phone || '',
+                'Table Number': order.table_number,
+                'Items Count': order.items.length,
+                'Subtotal (₹)': parseFloat(order.subtotal.toFixed(2)),
+                'GST Rate (%)': order.gst_rate,
+                'GST Amount (₹)': parseFloat(order.tax_amount.toFixed(2)),
+                'Total (₹)': parseFloat(order.total.toFixed(2)),
+                'Payment Mode': order.payment_mode,
+                'Cashier': order.cashier_name,
+                'Generated By': order.generated_by || 'cashier'
+            }));
+
+            // Create workbook and worksheet
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(excelData);
+
+            // Set column widths for better readability
+            const colWidths = [
+                { wch: 12 }, // Bill Number
+                { wch: 12 }, // Date
+                { wch: 8 },  // Time
+                { wch: 20 }, // Customer Name
+                { wch: 15 }, // Customer Phone
+                { wch: 12 }, // Table Number
+                { wch: 12 }, // Items Count
+                { wch: 15 }, // Subtotal
+                { wch: 12 }, // GST Rate
+                { wch: 15 }, // GST Amount
+                { wch: 15 }, // Total
+                { wch: 12 }, // Payment Mode
+                { wch: 15 }, // Cashier
+                { wch: 12 }  // Generated By
+            ];
+            ws['!cols'] = colWidths;
+
+            // Add worksheet to workbook
+            XLSX.utils.book_append_sheet(wb, ws, 'Sales Report');
+
+            // Generate filename with current date
+            const filename = `Sales_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+            // Save the file
+            XLSX.writeFile(wb, filename);
+
+            this.showToast('Sales Excel exported successfully!', 'success');
+        } catch (error) {
+            console.error('Excel export error:', error);
+            this.showToast('Error exporting Excel', 'error');
         }
     }
 
@@ -3477,6 +3603,7 @@ class RestaurantPOS {
         const exportButtons = [
             { id: 'exportSalesCSV', action: () => this.exportSalesCSV() },
             { id: 'exportSalesPDF', action: () => this.exportSalesPDF() },
+            { id: 'exportSalesExcel', action: () => this.exportSalesExcel() },
             { id: 'exportOrdersCSV', action: () => this.exportOrdersCSV() },
             { id: 'exportMenuCSV', action: () => this.exportMenuCSV() },
             { id: 'exportFinancialPDF', action: () => this.exportFinancialPDF() }

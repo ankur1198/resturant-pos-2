@@ -294,6 +294,62 @@ app.get('/api/data', (req, res) => {
     });
 });
 
+// New API endpoint for sales summary
+app.get('/api/sales-summary', (req, res) => {
+    const period = req.query.period || 'today';
+
+    let startDate;
+    const now = new Date();
+
+    switch (period) {
+        case 'week':
+            // Start of current week (Monday)
+            const day = now.getDay();
+            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+            startDate = new Date(now.setDate(diff));
+            startDate.setHours(0, 0, 0, 0);
+            break;
+        case 'month':
+            // Start of current month
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            break;
+        case 'today':
+        default:
+            // Start of today
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+    }
+
+    const startDateISO = startDate.toISOString();
+
+    // Query to aggregate sales data
+    const query = `
+        SELECT 
+            COUNT(*) AS totalOrders,
+            SUM(total) AS totalSales,
+            SUM(subtotal) AS totalSubtotal,
+            SUM(tax_amount) AS totalTax
+        FROM orders
+        WHERE created_at >= ?
+        AND status = 'completed'
+    `;
+
+    db.get(query, [startDateISO], (err, row) => {
+        if (err) {
+            console.error('Error fetching sales summary:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+
+        res.json({
+            period,
+            totalOrders: row.totalOrders || 0,
+            totalSales: row.totalSales || 0,
+            totalSubtotal: row.totalSubtotal || 0,
+            totalTax: row.totalTax || 0
+        });
+    });
+});
+
 // Save order
 app.post('/api/orders', (req, res) => {
     const order = req.body;

@@ -1,8 +1,10 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,8 +14,8 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static files from current directory
-app.use(express.static(path.join(__dirname)));
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Database setup
 const db = new sqlite3.Database('./restaurant_pos.db', (err) => {
@@ -1065,9 +1067,144 @@ app.put('/api/users/:id/last-login', (req, res) => {
         });
 });
 
-// Catch-all handler for 404 errors
+// Secure database backup route
+app.get('/backup-db', (req, res) => {
+    const expectedToken = process.env.BACKUP_TOKEN;
+    const providedToken = req.headers['x-backup-token'] || req.query.token;
+
+    if (!expectedToken || providedToken !== expectedToken) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const dbPath = path.join(__dirname, 'restaurant_pos.db');
+
+    res.download(dbPath, 'restaurant_pos_backup.db', (err) => {
+        if (err) {
+            console.error('Error downloading database backup:', err);
+            return res.status(500).json({ error: 'Failed to download backup' });
+        }
+    });
+});
+
+// Configure multer for file uploads
+const upload = multer({ dest: 'temp/' });
+
+// Function to validate SQLite database file
+function validateSQLiteFile(filePath) {
+    return new Promise((resolve, reject) => {
+        // Check file size (SQLite files should be at least 512 bytes for header)
+        fs.stat(filePath, (err, stats) => {
+            if (err) {
+                return reject(new Error('Cannot access file'));
+            }
+
+            if (stats.size < 512) {
+                return reject(new Error('File too small to be a valid SQLite database'));
+            }
+
+            // Read the SQLite header (first 16 bytes should be "SQLite format 3\000")
+            const buffer = Buffer.alloc(16);
+            const fd = fs.openSync(filePath, 'r');
+
+            try {
+                const bytesRead = fs.readSync(fd, buffer, 0, 16, 0);
+                fs.closeSync(fd);
+
+                if (bytesRead !== 16) {
+                    return reject(new Error('Cannot read file header'));
+                }
+
+                const header = buffer.toString('ascii', 0, 16);
+                if (header !== 'SQLite format 3\0') {
+                    return reject(new Error('Invalid SQLite database file'));
+                }
+
+                resolve(true);
+            } catch (error) {
+                fs.closeSync(fd);
+                reject(error);
+            }
+        });
+    });
+}
+
+// Secure database restore route
+app.post('/restore-db', upload.single('dbfile'), async (req, res) => {
+    const expectedToken = process.env.BACKUP_TOKEN;
+    const providedToken = req.headers['x-backup-token'] || req.query.token;
+
+    if (!expectedToken || providedToken !== expectedToken) {
+        // Clean up uploaded file if unauthorized
+        if (req.file) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error('Error cleaning up unauthorized upload:', err);
+            });
+        }
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!req.file) {
+        return res.status(400).json({ error: 'No database file provided' });
+    }
+
+    try {
+        // Validate the uploaded file is a proper SQLite database
+        await validateSQLiteFile(req.file.path);
+    } catch (validationError) {
+        console.error('Database validation failed:', validationError.message);
+        // Clean up invalid uploaded file
+        fs.unlink(req.file.path, (err) => {
+            if (err) console.error('Error cleaning up invalid upload:', err);
+        });
+        return res.status(400).json({ error: 'Invalid database file: ' + validationError.message });
+    }
+
+    const dbPath = path.join(__dirname, 'restaurant_pos.db');
+    const backupPath = path.join(__dirname, `restaurant_pos.db.bak.${Date.now()}`);
+
+    // First, create a backup of the current database
+    fs.copyFile(dbPath, backupPath, (err) => {
+        if (err) {
+            console.error('Error creating backup:', err);
+            // Clean up uploaded file
+            fs.unlink(req.file.path, (err2) => {
+                if (err2) console.error('Error cleaning up upload after backup failure:', err2);
+            });
+            return res.status(500).json({ error: 'Failed to create backup of current database' });
+        }
+
+        // Now replace the database with the uploaded file
+        fs.copyFile(req.file.path, dbPath, (err) => {
+            if (err) {
+                console.error('Error restoring database:', err);
+                // Clean up uploaded file
+                fs.unlink(req.file.path, (err2) => {
+                    if (err2) console.error('Error cleaning up upload after restore failure:', err2);
+                });
+                return res.status(500).json({ error: 'Failed to restore database' });
+            }
+
+            // Clean up the uploaded file
+            fs.unlink(req.file.path, (err) => {
+                if (err) {
+                    console.error('Error cleaning up uploaded file:', err);
+                }
+            });
+
+            console.log(`Database restored successfully. Backup created at: ${backupPath}`);
+            res.json({ success: true, message: 'Database restored successfully!' });
+        });
+    });
+});
+
+// Catch-all handler for 404 errors (only for non-API routes)
 app.get('*', (req, res) => {
-    res.status(404).sendFile(path.join(__dirname, '..', '404.php'));
+    // Only serve 404 for non-API routes
+    if (!req.path.startsWith('/api/') && req.path !== '/backup-db') {
+        res.status(404).sendFile(path.join(__dirname, '..', '404.php'));
+    } else {
+        res.status(404).json({ error: 'Not found' });
+    }
 });
 
 // Start server

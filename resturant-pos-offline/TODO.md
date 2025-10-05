@@ -1,67 +1,49 @@
-# Restaurant POS - Task Completion Status
+# Restaurant POS Offline - Project Organization
 
 ## Completed Tasks ✅
 
-### Sales Reports Enhancement
-- [x] Modified `loadSalesReports` function to accept a `data` parameter
-- [x] Added fallback to `this.data.orders` when no data parameter is provided
-- [x] Implemented polling functionality with `startSalesPolling()` and `stopSalesPolling()` methods
-- [x] **FIXED**: Polling now fetches fresh data from server before updating reports
-- [x] Polling automatically detects current period filter and refreshes accordingly
-- [x] Default polling interval set to 30 seconds
+### Static File Organization
+- [x] Updated `server.js` to serve static files from `public` directory instead of root
+- [x] Created `public` directory for frontend assets
+- [x] Moved frontend files to `public` directory:
+  - `index.html`
+  - `app.js`
+  - `style.css`
 
-### Sales Report Export Fix
-- [x] **FIXED**: CSV export now properly escapes fields containing commas, quotes, or newlines
-- [x] Added `escapeCSVField` helper function for proper CSV formatting
-- [x] Excel compatibility ensured for sales report downloads
+### Server Configuration
+- [x] Modified Express static middleware to serve from `public` directory
+- [x] Maintained all API routes and database functionality
+- [x] Preserved server-side files in root directory (server.js, package.json, etc.)
 
-## Implementation Details
-
-### Function Signature Change
-```javascript
-loadSalesReports(period = 'today', data = null)
+## Project Structure
+```
+resturant-pos-offline/
+├── public/                 # Frontend assets
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
+├── server.js              # Express server
+├── package.json
+├── restaurant_pos.db      # SQLite database
+├── vercel.json           # Deployment config
+├── Dockerfile            # Docker config
+└── TODO.md               # This file
 ```
 
-### New Methods Added
-- `startSalesPolling(interval = 30000)` - Starts automatic refresh of sales reports with server data fetch
-- `stopSalesPolling()` - Stops the polling interval
-
-### Key Fixes Applied
-
-#### Real-time Sales Reports
-The polling functionality now:
-1. Fetches fresh data from server using `loadDataFromServer()`
-2. Updates sales reports with the latest data
-3. Handles errors gracefully if server fetch fails
-
-#### CSV Export Fix
-The CSV export now:
-1. Properly escapes fields containing commas, quotes, or newlines
-2. Wraps problematic fields in double quotes
-3. Doubles internal quotes for proper CSV formatting
-4. Ensures Excel compatibility
-
-### Usage Examples
-```javascript
-// Use with custom data
-pos.loadSalesReports('today', customOrdersData);
-
-// Start polling (refreshes every 30 seconds with fresh server data)
-pos.startSalesPolling();
-
-// Start polling with custom interval (60 seconds)
-pos.startSalesPolling(60000);
-
-// Stop polling
-pos.stopSalesPolling();
-
-// Export sales report (now Excel-compatible)
-pos.exportSalesCSV();
-```
+## Next Steps
+- [x] Test server startup and static file serving
+- [x] Verify frontend loads correctly from `public` directory
+- [x] Add secure database backup route `/backup-db`
+- [x] Test backup route functionality
+- [x] Add secure database restore route `/restore-db`
+- [x] Test restore route functionality
+- [ ] Test all API endpoints functionality
+- [ ] Run duplicate order detection tests
+- [ ] Validate sales reports and export features
+- [ ] Prepare deployment instructions
 
 ## Notes
-- Polling automatically uses the currently active period filter (today/week/month)
-- The `data` parameter allows for testing with mock data or filtered datasets
-- Real-time updates now work without requiring logout/login
-- CSV exports now open correctly in Excel without data corruption
-- All existing functionality remains unchanged for backward compatibility
+- Server now serves static files from `public` directory for better organization
+- All existing functionality preserved
+- Frontend assets properly separated from server files
+- Ready for production deployment with clean file structure

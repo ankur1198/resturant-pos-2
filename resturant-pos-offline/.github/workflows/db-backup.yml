@@ -1,0 +1,40 @@
+name: Backup SQLite DB to Git Repo
+
+on:
+  schedule:
+    - cron: "30 16 * * *"   # daily 22:00 IST (10 PM)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare backup repo
+        run: |
+          mkdir backup-repo
+          cd backup-repo
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download DB from Render
+        env:
+          BACKUP_URL: ${{ secrets.BACKUP_URL }}
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+        run: |
+          curl -fSL -H "x-backup-token: $BACKUP_TOKEN" "$BACKUP_URL" -o restaurant_pos.db
+          gzip -c restaurant_pos.db > restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
+
+      - name: Push Backup to Repo
+        env:
+          GIT_BACKUP_REPO: ${{ secrets.GIT_BACKUP_REPO }}
+          GIT_BACKUP_TOKEN: ${{ secrets.GIT_BACKUP_TOKEN }}
+        run: |
+          cd backup-repo
+          git remote add origin https://x-access-token:${GIT_BACKUP_TOKEN}@${GIT_BACKUP_REPO#https://}
+          git fetch origin main || true
+          git checkout -b main || git checkout main
+          cp ../restaurant_pos-*.db.gz ./
+          git add .
+          git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes"
+          git push origin main

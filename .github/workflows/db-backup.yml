@@ -34,7 +34,7 @@ jobs:
           git remote add origin https://x-access-token:${GIT_BACKUP_TOKEN}@${GIT_BACKUP_REPO#https://}
           git fetch origin main || true
           git checkout -b main || git checkout main
-          git pull origin main --rebase      # <-- Add this line
+          git pull --rebase origin main || true   # <-- Add this line for a rebase pull
           cp ../restaurant_pos-*.db.gz ./
           git add .
           git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes"

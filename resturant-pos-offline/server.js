@@ -1,3 +1,9 @@
+import fs from "fs";
+import https from "https";
+import zlib from "zlib";
+import path from "path";
+import dotenv from "dotenv";
+
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
@@ -6,11 +12,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 
-import fs from "fs";
-import https from "https";
-import zlib from "zlib";
-import path from "path";
-import dotenv from "dotenv";
+
 
 dotenv.config();
 

@@ -3,16 +3,19 @@ import https from "https";
 import zlib from "zlib";
 //import path from "path";
 import dotenv from "dotenv";
+import express from 'express';
+import sqlite3 from 'sqlite3';
+import path from 'path';
+import fs from 'fs';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import multer from 'multer';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const multer = require('multer');
-
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
 
@@ -788,7 +791,6 @@ function createOrderHash(order) {
     };
 
     // Use crypto for more secure and consistent hashing
-    const crypto = require('crypto');
     const hash = crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex');
 
     return hash;
@@ -1295,4 +1297,4 @@ process.on('SIGINT', () => {
     });
 });
 
-module.exports = app;
+export default app;

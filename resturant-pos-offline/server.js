@@ -6,6 +6,73 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 
+import fs from "fs";
+import https from "https";
+import zlib from "zlib";
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const DB_FILE = path.join(process.cwd(), "restaurant_pos.db");
+const BACKUP_RESTORE_URL = process.env.BACKUP_RESTORE_URL;
+const GITHUB_BACKUP_TOKEN = process.env.GITHUB_BACKUP_TOKEN;
+
+async function downloadPrivateGitHubFile(url, dest, token) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      headers: {
+        "User-Agent": "RenderAutoRestore/1.0",
+        "Authorization": `token ${token}`
+      }
+    };
+
+    const file = fs.createWriteStream(dest);
+    https.get(url, options, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download backup (HTTP ${response.statusCode})`));
+        return;
+      }
+      response.pipe(file);
+      file.on("finish", () => file.close(resolve));
+    }).on("error", reject);
+  });
+}
+
+(async () => {
+  try {
+    const exists = fs.existsSync(DB_FILE);
+    const size = exists ? fs.statSync(DB_FILE).size : 0;
+
+    if (!exists || size < 10000) {
+      console.log("⚠️  Restoring database from private GitHub backup...");
+
+      if (!BACKUP_RESTORE_URL || !GITHUB_BACKUP_TOKEN) {
+        console.error("❌ Missing BACKUP_RESTORE_URL or GITHUB_BACKUP_TOKEN. Skipping restore.");
+        return;
+      }
+
+      const gzPath = DB_FILE + ".gz";
+      await downloadPrivateGitHubFile(BACKUP_RESTORE_URL, gzPath, GITHUB_BACKUP_TOKEN);
+
+      const gunzip = zlib.createGunzip();
+      const input = fs.createReadStream(gzPath);
+      const output = fs.createWriteStream(DB_FILE);
+      input.pipe(gunzip).pipe(output);
+
+      await new Promise((res) => output.on("finish", res));
+      fs.unlinkSync(gzPath);
+
+      console.log("✅ Database restored successfully from backup!");
+    } else {
+      console.log("✅ Database already exists. Skipping restore.");
+    }
+  } catch (err) {
+    console.error("❌ Error during restore:", err);
+  }
+})();
+
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 

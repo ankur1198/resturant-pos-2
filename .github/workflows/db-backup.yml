@@ -8,34 +8,34 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Prepare backup repo
+      - name: Prepare environment
         run: |
           mkdir backup-repo
-          cd backup-repo
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Download DB from Render
         env:
           BACKUP_URL: ${{ secrets.BACKUP_URL }}
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
         run: |
-          curl -fSL -H "x-backup-token: $BACKUP_TOKEN" "$BACKUP_URL" -o restaurant_pos.db
-          gzip -c restaurant_pos.db > restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
+          curl -fSL -H "x-backup-token: $BACKUP_TOKEN" "$BACKUP_URL" -o backup-repo/restaurant_pos.db
+          gzip -c backup-repo/restaurant_pos.db > backup-repo/restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
 
       - name: Push Backup to Repo
         env:
           GIT_BACKUP_REPO: ${{ secrets.GIT_BACKUP_REPO }}
           GIT_BACKUP_TOKEN: ${{ secrets.GIT_BACKUP_TOKEN }}
         run: |
-          mkdir -p backup-repo   # -p avoids error if directory exists
           cd backup-repo
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Add remote and fetch history
+
           git remote add origin https://x-access-token:${GIT_BACKUP_TOKEN}@${GIT_BACKUP_REPO#https://}
           git fetch origin main || true
-          git checkout -b main origin/main || git checkout main
+          git checkout -b main || git checkout main
+
+          git add .
+          git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes to commit"
+          git push origin main

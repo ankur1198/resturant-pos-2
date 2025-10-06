@@ -30,7 +30,7 @@ jobs:
           GIT_BACKUP_REPO: ${{ secrets.GIT_BACKUP_REPO }}
           GIT_BACKUP_TOKEN: ${{ secrets.GIT_BACKUP_TOKEN }}
         run: |
-          mkdir backup-repo
+          mkdir -p backup-repo   # -p avoids error if directory exists
           cd backup-repo
           git init
           git config user.name "github-actions[bot]"

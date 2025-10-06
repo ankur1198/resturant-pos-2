@@ -37,4 +37,5 @@ jobs:
           cp ../restaurant_pos-*.db.gz ./
           git add .
           git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes"
+          git pull --rebase origin main  # <-- Add this line before pushing
           git push origin main

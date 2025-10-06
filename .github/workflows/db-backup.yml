@@ -30,12 +30,12 @@ jobs:
           GIT_BACKUP_REPO: ${{ secrets.GIT_BACKUP_REPO }}
           GIT_BACKUP_TOKEN: ${{ secrets.GIT_BACKUP_TOKEN }}
         run: |
+          mkdir backup-repo
           cd backup-repo
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Add remote and fetch history
           git remote add origin https://x-access-token:${GIT_BACKUP_TOKEN}@${GIT_BACKUP_REPO#https://}
           git fetch origin main || true
-          git checkout -b main || git checkout main
-          git pull --rebase origin main || true   # <-- Add this line for a rebase pull
-          cp ../restaurant_pos-*.db.gz ./
-          git add .
-          git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes"
-          git push origin main
+          git checkout -b main origin/main || git checkout main

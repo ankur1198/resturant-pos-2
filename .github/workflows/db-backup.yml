@@ -26,6 +26,7 @@ jobs:
           sleep 20
           done
           gzip -c backup-repo/restaurant_pos.db > backup-repo/restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
+          cp backup-repo/restaurant_pos-${timestamp}.db.gz backup-repo/latest.db.gz
 
       - name: Push Backup to Repo
         env:

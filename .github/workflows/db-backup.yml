@@ -8,19 +8,21 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Prepare environment
-        run: |
-          mkdir backup-repo
-
       - name: Download DB from Render
         env:
           BACKUP_URL: ${{ secrets.BACKUP_URL }}
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
         run: |
-          curl -fSL -H "x-backup-token: $BACKUP_TOKEN" "$BACKUP_URL" -o backup-repo/restaurant_pos.db
-          gzip -c backup-repo/restaurant_pos.db > backup-repo/restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
+          mkdir backup-repo
+          cd backup-repo
+          # Download the live database
+          curl -fSL -H "x-backup-token: $BACKUP_TOKEN" "$BACKUP_URL" -o restaurant_pos.db
+          # Create timestamped compressed backup
+          timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+          gzip -c restaurant_pos.db > restaurant_pos-${timestamp}.db.gz
+          # Copy as latest.db.gz
+          cp restaurant_pos-${timestamp}.db.gz latest.db.gz
 
       - name: Push Backup to Repo
         env:
@@ -31,11 +33,9 @@ jobs:
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git remote add origin https://x-access-token:${GIT_BACKUP_TOKEN}@${GIT_BACKUP_REPO#https://}
           git fetch origin main || true
           git checkout -b main || git checkout main
-
           git add .
           git commit -m "Backup on $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes to commit"
           git push origin main --force

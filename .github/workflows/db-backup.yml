@@ -25,7 +25,8 @@ jobs:
           echo "Retrying in 20s..."
           sleep 20
           done
-          gzip -c backup-repo/restaurant_pos.db > backup-repo/restaurant_pos-$(date -u +%Y%m%dT%H%M%SZ).db.gz
+          timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+          gzip -c backup-repo/restaurant_pos.db > backup-repo/restaurant_pos-${timestamp}.db.gz
           cp backup-repo/restaurant_pos-${timestamp}.db.gz backup-repo/latest.db.gz
 
       - name: Push Backup to Repo

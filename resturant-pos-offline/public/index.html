@@ -153,8 +153,17 @@
                         </div>
                     </div>
                     <div class="payment-breakdown">
-                        <h3>Payment Mode Breakdown</h3>
-                        <div id="paymentChart" class="chart-container" style="position: relative; height: 300px;">
+                        <div class="chart-controls">
+                            <h3>Analytics Charts</h3>
+                            <div class="chart-type-selector">
+                                <button class="btn btn--outline chart-type-btn active" data-chart-type="payment">Payment Modes</button>
+                                <button class="btn btn--outline chart-type-btn" data-chart-type="item-sales">Item Sales Volume</button>
+                                <button class="btn btn--outline chart-type-btn" data-chart-type="item-revenue">Item Revenue</button>
+                                <button class="btn btn--outline chart-type-btn" data-chart-type="category-breakdown">Category Breakdown</button>
+                                <button class="btn btn--outline chart-type-btn" data-chart-type="hourly-sales">Hourly Sales</button>
+                            </div>
+                        </div>
+                        <div id="paymentChart" class="chart-container" style="position: relative; height: 400px;">
                             <canvas></canvas>
                         </div>
                     </div>

@@ -27,6 +27,7 @@ class RestaurantPOS {
         this.isCompletingOrder = false;
         this.pendingRequests = new Set();
         this.lastOrderHash = null;
+        this.currentChartType = 'payment'; // Default chart type
 
         // Enhanced: Track pending order content hashes to prevent duplicate submissions
         this.pendingOrderHashes = new Set();
@@ -692,6 +693,7 @@ class RestaurantPOS {
         this.loadAdminBillManagement();
         this.loadMenuItems();
         this.loadSalesReports();
+        this.startSalesPolling();
         this.loadUsers();
         this.loadRestaurantSettings();
         this.loadQRSettings();
@@ -1521,34 +1523,47 @@ class RestaurantPOS {
         }
     }
 
-    loadSalesReports(period = 'today', data = null) {
+    loadSalesReports(period = 'today', startDate = null, endDate = null, data = null) {
+        // Track current filter for polling
+        if (period === 'custom' && startDate && endDate) {
+            this.currentSalesFilter = { period: 'custom', start: startDate, end: endDate };
+        } else {
+            this.currentSalesFilter = { period, start: null, end: null };
+        }
+
         // Use provided data or fallback to this.data.orders
         const ordersData = data || this.data.orders;
 
         const now = new Date();
-        let startDate, endDate;
+        let filterStart, filterEnd;
 
-        switch (period) {
-            case 'today':
-                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-                break;
-            case 'week':
-                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-                endDate = now;
-                break;
-            case 'month':
-                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-                endDate = now;
-                break;
-            default:
-                startDate = new Date(0);
-                endDate = now;
+        if (period === 'custom' && startDate && endDate) {
+            filterStart = new Date(startDate);
+            filterEnd = new Date(endDate);
+            filterEnd.setDate(filterEnd.getDate() + 1); // Make end inclusive
+        } else {
+            switch (period) {
+                case 'today':
+                    filterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    filterEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                    break;
+                case 'week':
+                    filterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+                    filterEnd = now;
+                    break;
+                case 'month':
+                    filterStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                    filterEnd = now;
+                    break;
+                default:
+                    filterStart = new Date(0);
+                    filterEnd = now;
+            }
         }
 
         const filteredOrders = ordersData.filter(order => {
             const orderDate = new Date(order.created_at);
-            return orderDate >= startDate && orderDate < endDate;
+            return orderDate >= filterStart && orderDate < filterEnd;
         });
 
         const totalSales = filteredOrders.reduce((sum, order) => sum + order.total, 0);
@@ -1571,17 +1586,22 @@ class RestaurantPOS {
         // Clear any existing polling
         this.stopSalesPolling();
 
-        // Get current period from active filter button
-        const activeFilter = document.querySelector('.filter-btn.active');
-        const currentPeriod = activeFilter ? activeFilter.dataset.period : 'today';
+        // Initialize current filter if not set
+        if (!this.currentSalesFilter) {
+            this.currentSalesFilter = { period: 'today', start: null, end: null };
+        }
 
         this.salesPollingInterval = setInterval(async () => {
             console.log('Refreshing sales reports via polling...');
             try {
                 // Fetch fresh data from server
                 await this.loadDataFromServer();
-                // Then update sales reports with current period
-                this.loadSalesReports(currentPeriod);
+                // Then update sales reports with current filter
+                this.loadSalesReports(
+                    this.currentSalesFilter.period,
+                    this.currentSalesFilter.start,
+                    this.currentSalesFilter.end
+                );
                 console.log('Sales reports updated with fresh data');
             } catch (error) {
                 console.error('Error refreshing sales reports:', error);
@@ -1599,38 +1619,411 @@ class RestaurantPOS {
         }
     }
 
+    updateChartType(chartType) {
+        this.currentChartType = chartType;
+        // Use current filter
+        this.loadSalesReports(
+            this.currentSalesFilter ? this.currentSalesFilter.period : 'today',
+            this.currentSalesFilter ? this.currentSalesFilter.start : null,
+            this.currentSalesFilter ? this.currentSalesFilter.end : null
+        );
+    }
+
     updatePaymentChart(orders) {
+        const ctx = document.querySelector('#paymentChart canvas');
+        if (!ctx) return;
+
+        // Enhanced check to ensure it's a valid Chart instance
+        if (window.paymentChart && typeof window.paymentChart.destroy === 'function') {
+            window.paymentChart.destroy();
+        }
+        window.paymentChart = null; // Reset to ensure fresh creation
+
+        // Handle empty data
+        if (!orders || orders.length === 0) {
+            ctx.style.backgroundColor = '#f8f9fa';
+            const parent = ctx.parentElement;
+            if (!parent.querySelector('.no-data-message')) {
+                const message = document.createElement('div');
+                message.className = 'no-data-message';
+                message.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #6c757d; font-size: 14px;';
+                message.textContent = 'No data available for this period';
+                parent.appendChild(message);
+            }
+            return;
+        }
+
+        // Remove any existing no-data message
+        const existingMessage = ctx.parentElement.querySelector('.no-data-message');
+        if (existingMessage) existingMessage.remove();
+
+        const chartType = this.currentChartType || 'payment';
+        let chartConfig;
+
+        switch (chartType) {
+            case 'payment':
+                chartConfig = this.getPaymentChartConfig(orders);
+                break;
+            case 'item-sales':
+                chartConfig = this.getItemSalesChartConfig(orders);
+                break;
+            case 'revenue':
+                chartConfig = this.getRevenueOverTimeChartConfig(orders);
+                break;
+            case 'category':
+                chartConfig = this.getCategoryChartConfig(orders);
+                break;
+            case 'item-revenue':
+                chartConfig = this.getItemRevenueChartConfig(orders);
+                break;
+            case 'hourly-sales':
+                chartConfig = this.getHourlySalesChartConfig(orders);
+                break;
+            default:
+                chartConfig = this.getPaymentChartConfig(orders);
+        }
+
+        try {
+            window.paymentChart = new Chart(ctx, chartConfig);
+        } catch (error) {
+            console.error('Error creating chart:', error);
+            // Fallback: Clear canvas
+            const chartCtx = ctx.getContext('2d');
+            chartCtx.clearRect(0, 0, ctx.width, ctx.height);
+            chartCtx.fillStyle = '#f8f9fa';
+            chartCtx.fillRect(0, 0, ctx.width, ctx.height);
+        }
+    }
+
+    getPaymentChartConfig(orders) {
         const paymentData = {};
         this.data.paymentModes.forEach(mode => {
             paymentData[mode] = orders.filter(o => o.payment_mode === mode).reduce((sum, o) => sum + o.total, 0);
         });
 
-        const ctx = document.querySelector('#paymentChart canvas');
-        if (ctx) {
-            if (window.paymentChart) {
-                window.paymentChart.destroy();
+        // Filter out zero values
+        const filteredLabels = [];
+        const filteredData = [];
+        Object.entries(paymentData).forEach(([mode, amount]) => {
+            if (amount > 0) {
+                filteredLabels.push(mode);
+                filteredData.push(amount);
             }
-            
-            window.paymentChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: Object.keys(paymentData),
-                    datasets: [{
-                        data: Object.values(paymentData),
-                        backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C', '#ECEBD5', '#5D878F']
-                    }]
+        });
+
+        return {
+            type: 'doughnut',
+            data: {
+                labels: filteredLabels,
+                datasets: [{
+                    data: filteredData,
+                    backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C', '#ECEBD5', '#5D878F', '#A8DADC', '#F4A261']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Payment Mode Breakdown'
+                    }
+                }
+            }
+        };
+    }
+
+    getItemSalesChartConfig(orders) {
+        const itemSales = {};
+
+        orders.forEach(order => {
+            order.items.forEach(item => {
+                const itemName = item.name;
+                if (!itemSales[itemName]) {
+                    itemSales[itemName] = 0;
+                }
+                itemSales[itemName] += item.quantity;
+            });
+        });
+
+        // Sort by quantity and take top 10
+        const sortedItems = Object.entries(itemSales)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+
+        return {
+            type: 'bar',
+            data: {
+                labels: sortedItems.map(([name]) => name.length > 15 ? name.substring(0, 15) + '...' : name),
+                datasets: [{
+                    label: 'Units Sold',
+                    data: sortedItems.map(([, quantity]) => quantity),
+                    backgroundColor: '#1FB8CD',
+                    borderColor: '#1FB8CD',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 10 Items by Sales Volume'
+                    }
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Units Sold'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Menu Items'
                         }
                     }
                 }
+            }
+        };
+    }
+
+    getRevenueOverTimeChartConfig(orders) {
+        const dailyRevenue = {};
+
+        orders.forEach(order => {
+            const date = order.date; // Assuming date is 'YYYY-MM-DD'
+            if (!dailyRevenue[date]) {
+                dailyRevenue[date] = 0;
+            }
+            dailyRevenue[date] += order.total;
+        });
+
+        // Sort by date
+        const sortedDates = Object.keys(dailyRevenue).sort();
+        const labels = sortedDates;
+        const data = sortedDates.map(date => dailyRevenue[date]);
+
+        return {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Daily Revenue (₹)',
+                    data: data,
+                    borderColor: '#FFC185',
+                    backgroundColor: 'rgba(255, 193, 133, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Revenue Over Time'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Revenue (₹)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    getItemRevenueChartConfig(orders) {
+        const itemRevenue = {};
+
+        orders.forEach(order => {
+            order.items.forEach(item => {
+                const itemName = item.name;
+                if (!itemRevenue[itemName]) {
+                    itemRevenue[itemName] = 0;
+                }
+                itemRevenue[itemName] += item.total;
             });
+        });
+
+        // Sort by revenue and take top 10
+        const sortedItems = Object.entries(itemRevenue)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+
+        return {
+            type: 'bar',
+            data: {
+                labels: sortedItems.map(([name]) => name.length > 15 ? name.substring(0, 15) + '...' : name),
+                datasets: [{
+                    label: 'Revenue (₹)',
+                    data: sortedItems.map(([, revenue]) => revenue),
+                    backgroundColor: '#FFC185',
+                    borderColor: '#FFC185',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top 10 Items by Revenue'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Revenue (₹)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Menu Items'
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    getCategoryChartConfig(orders) {
+        const categoryData = {};
+
+        orders.forEach(order => {
+            order.items.forEach(item => {
+                // Find the category for this item
+                const menuItem = this.data.menuItems.find(mi => mi.name === item.name);
+                const category = menuItem ? menuItem.category : 'Unknown';
+
+                if (!categoryData[category]) {
+                    categoryData[category] = 0;
+                }
+                categoryData[category] += item.total;
+            });
+        });
+
+        // Filter out zero values
+        const filteredLabels = [];
+        const filteredData = [];
+        Object.entries(categoryData).forEach(([category, amount]) => {
+            if (amount > 0) {
+                filteredLabels.push(category);
+                filteredData.push(amount);
+            }
+        });
+
+        return {
+            type: 'doughnut',
+            data: {
+                labels: filteredLabels,
+                datasets: [{
+                    data: filteredData,
+                    backgroundColor: ['#1FB8CD', '#FFC185', '#B4413C', '#ECEBD5', '#5D878F', '#A8DADC', '#F4A261', '#E76F51']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Revenue by Category'
+                    }
+                }
+            }
+        };
+    }
+
+    getHourlySalesChartConfig(orders) {
+        const hourlyData = {};
+
+        // Initialize hours 0-23
+        for (let i = 0; i < 24; i++) {
+            hourlyData[i] = 0;
         }
+
+        orders.forEach(order => {
+            const hour = new Date(order.created_at).getHours();
+            hourlyData[hour] += order.total;
+        });
+
+        return {
+            type: 'line',
+            data: {
+                labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                datasets: [{
+                    label: 'Sales (₹)',
+                    data: Object.values(hourlyData),
+                    borderColor: '#1FB8CD',
+                    backgroundColor: 'rgba(31, 184, 205, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Hourly Sales Distribution'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Revenue (₹)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Hour of Day'
+                        }
+                    }
+                }
+            }
+        };
     }
 
     loadUsers() {
@@ -3525,6 +3918,12 @@ class RestaurantPOS {
             sectionEl.classList.add('active');
         }
 
+        if (section === 'sales') {
+            this.startSalesPolling();
+        } else {
+            this.stopSalesPolling();
+        }
+
         // Load data when switching sections
         if (section === 'bills') {
             setTimeout(() => this.loadAdminBillManagement(), 100);
@@ -3709,7 +4108,57 @@ class RestaurantPOS {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                // Clear custom date inputs
+                const fromDateEl = document.getElementById('salesFromDate');
+                const toDateEl = document.getElementById('salesToDate');
+                if (fromDateEl) fromDateEl.value = '';
+                if (toDateEl) toDateEl.value = '';
                 this.loadSalesReports(btn.dataset.period);
+            });
+        });
+
+        // Custom date range apply
+        const applyDateRangeBtn = document.getElementById('applyDateRange');
+        if (applyDateRangeBtn) {
+            applyDateRangeBtn.addEventListener('click', () => {
+                const fromDate = document.getElementById('salesFromDate')?.value;
+                const toDate = document.getElementById('salesToDate')?.value;
+                if (fromDate && toDate && fromDate <= toDate) {
+                    // Deactivate period buttons
+                    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    this.loadSalesReports('custom', fromDate, toDate);
+                } else {
+                    this.showToast('Please select valid from and to dates', 'error');
+                }
+            });
+        }
+
+        // Date inputs change to auto-apply (optional)
+        const salesFromDate = document.getElementById('salesFromDate');
+        const salesToDate = document.getElementById('salesToDate');
+        if (salesFromDate) {
+            salesFromDate.addEventListener('change', () => {
+                if (salesToDate.value) applyDateRangeBtn.click();
+            });
+        }
+        if (salesToDate) {
+            salesToDate.addEventListener('change', () => {
+                if (salesFromDate.value) applyDateRangeBtn.click();
+            });
+        }
+
+        // Chart Type Selection - Map button data-chart-type to internal types
+        document.querySelectorAll('.chart-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                let internalType = btn.dataset.chartType;
+                // Map UI types to internal
+                if (internalType === 'revenue') internalType = 'revenue';
+                if (internalType === 'category') internalType = 'category';
+                if (internalType === 'item-sales') internalType = 'item-sales';
+                if (internalType === 'payment-mode') internalType = 'payment';
+                this.updateChartType(internalType);
             });
         });
 

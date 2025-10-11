@@ -1257,13 +1257,44 @@ select.form-control {
   margin: var(--space-24) 0;
 }
 
-.payment-breakdown h3 {
-  margin: 0 0 var(--space-16) 0;
+.chart-controls {
+  margin-bottom: var(--space-20);
+}
+
+.chart-controls h3 {
+  margin: 0 0 var(--space-12) 0;
+}
+
+.chart-type-selector {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.chart-type-btn {
+  background: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-base);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--duration-fast) var(--ease-standard);
+}
+
+.chart-type-btn:hover {
+  background: var(--color-secondary-hover);
+}
+
+.chart-type-btn.active {
+  background: var(--color-primary);
+  color: var(--color-btn-primary-text);
+  border-color: var(--color-primary);
 }
 
 .chart-container {
   position: relative;
-  height: 300px;
+  height: 400px;
 }
 
 /* User Management */

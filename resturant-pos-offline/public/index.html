@@ -133,9 +133,12 @@
                             <button class="btn btn--outline filter-btn active" data-period="today">Today</button>
                             <button class="btn btn--outline filter-btn" data-period="week">This Week</button>
                             <button class="btn btn--outline filter-btn" data-period="month">This Month</button>
-                            <input type="date" id="customFromDate" class="form-control">
-                            <input type="date" id="customToDate" class="form-control">
-                            <button class="btn btn--secondary" id="applyCustomFilter">Apply</button>
+                            <button class="btn btn--outline" id="selectDateRangeBtn">Select Date Range</button>
+                            <div class="date-range-selector">
+                                <input type="date" id="customFromDate" class="form-control">
+                                <input type="date" id="customToDate" class="form-control">
+                                <button class="btn btn--secondary" id="applyCustomFilter">Apply</button>
+                            </div>
                         </div>
                     </div>
                     <div class="sales-summary">

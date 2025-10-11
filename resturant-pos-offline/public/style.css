@@ -1213,6 +1213,18 @@ select.form-control {
   flex-wrap: wrap;
 }
 
+.date-range-selector {
+  display: none;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+#selectDateRangeBtn.active {
+  background: var(--color-primary);
+  color: var(--color-btn-primary-text);
+  border-color: var(--color-primary);
+}
+
 .filter-btn.active {
   background: var(--color-primary);
   color: var(--color-btn-primary-text);

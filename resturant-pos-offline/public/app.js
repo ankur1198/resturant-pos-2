@@ -4109,23 +4109,41 @@ class RestaurantPOS {
                 document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 // Clear custom date inputs
-                const fromDateEl = document.getElementById('salesFromDate');
-                const toDateEl = document.getElementById('salesToDate');
+                const fromDateEl = document.getElementById('customFromDate');
+                const toDateEl = document.getElementById('customToDate');
                 if (fromDateEl) fromDateEl.value = '';
                 if (toDateEl) toDateEl.value = '';
+                document.querySelector('.date-range-selector').style.display = 'none';
+                document.getElementById('selectDateRangeBtn').classList.remove('active');
                 this.loadSalesReports(btn.dataset.period);
             });
         });
 
+        // Select Date Range button
+        document.getElementById('selectDateRangeBtn').addEventListener('click', () => {
+            const selector = document.querySelector('.date-range-selector');
+            selector.style.display = selector.style.display === 'none' || selector.style.display === '' ? 'flex' : 'none';
+            // Set max date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('customFromDate').max = today;
+            document.getElementById('customToDate').max = today;
+            // Deactivate period buttons
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            // Activate select button
+            document.getElementById('selectDateRangeBtn').classList.add('active');
+        });
+
         // Custom date range apply
-        const applyDateRangeBtn = document.getElementById('applyDateRange');
+        const applyDateRangeBtn = document.getElementById('applyCustomFilter');
         if (applyDateRangeBtn) {
             applyDateRangeBtn.addEventListener('click', () => {
-                const fromDate = document.getElementById('salesFromDate')?.value;
-                const toDate = document.getElementById('salesToDate')?.value;
+                const fromDate = document.getElementById('customFromDate')?.value;
+                const toDate = document.getElementById('customToDate')?.value;
                 if (fromDate && toDate && fromDate <= toDate) {
                     // Deactivate period buttons
                     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    // Activate select button
+                    document.getElementById('selectDateRangeBtn').classList.add('active');
                     this.loadSalesReports('custom', fromDate, toDate);
                 } else {
                     this.showToast('Please select valid from and to dates', 'error');
@@ -4134,16 +4152,16 @@ class RestaurantPOS {
         }
 
         // Date inputs change to auto-apply (optional)
-        const salesFromDate = document.getElementById('salesFromDate');
-        const salesToDate = document.getElementById('salesToDate');
-        if (salesFromDate) {
-            salesFromDate.addEventListener('change', () => {
-                if (salesToDate.value) applyDateRangeBtn.click();
+        const customFromDate = document.getElementById('customFromDate');
+        const customToDate = document.getElementById('customToDate');
+        if (customFromDate) {
+            customFromDate.addEventListener('change', () => {
+                if (customToDate.value) applyDateRangeBtn.click();
             });
         }
-        if (salesToDate) {
-            salesToDate.addEventListener('change', () => {
-                if (salesFromDate.value) applyDateRangeBtn.click();
+        if (customToDate) {
+            customToDate.addEventListener('change', () => {
+                if (customFromDate.value) applyDateRangeBtn.click();
             });
         }
 
